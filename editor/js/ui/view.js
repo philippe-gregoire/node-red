@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2015 IBM Corp.
+ * Copyright 2013, 2016 IBM Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,12 @@ RED.view = (function() {
 
     var workspaceScrollPositions = {};
 
+    var gridSize = 20;
+    var snapGrid = false;
+
+    var activeSpliceLink;
+    var spliceActive = false;
+    var spliceTimer;
 
     var activeSubflow = null;
     var activeNodes = [];
@@ -196,40 +202,54 @@ RED.view = (function() {
         .attr('height', space_height)
         .attr('fill','#fff');
 
-    //var gridScale = d3.scale.linear().range([0,2000]).domain([0,2000]);
-    //var grid = vis.append('g');
-    //
-    //grid.selectAll("line.horizontal").data(gridScale.ticks(100)).enter()
-    //    .append("line")
-    //        .attr(
-    //        {
-    //            "class":"horizontal",
-    //            "x1" : 0,
-    //            "x2" : 2000,
-    //            "y1" : function(d){ return gridScale(d);},
-    //            "y2" : function(d){ return gridScale(d);},
-    //            "fill" : "none",
-    //            "shape-rendering" : "crispEdges",
-    //            "stroke" : "#eee",
-    //            "stroke-width" : "1px"
-    //        });
-    //grid.selectAll("line.vertical").data(gridScale.ticks(100)).enter()
-    //    .append("line")
-    //        .attr(
-    //        {
-    //            "class":"vertical",
-    //            "y1" : 0,
-    //            "y2" : 2000,
-    //            "x1" : function(d){ return gridScale(d);},
-    //            "x2" : function(d){ return gridScale(d);},
-    //            "fill" : "none",
-    //            "shape-rendering" : "crispEdges",
-    //            "stroke" : "#eee",
-    //            "stroke-width" : "1px"
-    //        });
+    var gridScale = d3.scale.linear().range([0,space_width]).domain([0,space_width]);
+    var grid = vis.append('g');
 
+    grid.selectAll("line.horizontal").data(gridScale.ticks(space_width/gridSize)).enter()
+       .append("line")
+           .attr(
+           {
+               "class":"horizontal",
+               "x1" : 0,
+               "x2" : space_width,
+               "y1" : function(d){ return gridScale(d);},
+               "y2" : function(d){ return gridScale(d);},
+               "fill" : "none",
+               "shape-rendering" : "crispEdges",
+               "stroke" : "#eee",
+               "stroke-width" : "1px"
+           });
+    grid.selectAll("line.vertical").data(gridScale.ticks(space_width/gridSize)).enter()
+       .append("line")
+           .attr(
+           {
+               "class":"vertical",
+               "y1" : 0,
+               "y2" : space_width,
+               "x1" : function(d){ return gridScale(d);},
+               "x2" : function(d){ return gridScale(d);},
+               "fill" : "none",
+               "shape-rendering" : "crispEdges",
+               "stroke" : "#eee",
+               "stroke-width" : "1px"
+           });
+    grid.style("visibility","hidden");
 
-    var drag_line = vis.append("svg:path").attr("class", "drag_line");
+    var dragGroup = vis.append('g');
+    var drag_lines = [];
+
+    function showDragLines(nodes) {
+        for (var i=0;i<nodes.length;i++) {
+            var node = nodes[i];
+            node.el = dragGroup.append("svg:path").attr("class", "drag_line");
+            drag_lines.push(node);
+        }
+    }
+    function hideDragLines() {
+        while(drag_lines.length) {
+            (drag_lines.pop()).el.remove();
+        }
+    }
 
     function updateActiveNodes() {
         var activeWorkspace = RED.workspaces.active();
@@ -300,7 +320,6 @@ RED.view = (function() {
             drop: function( event, ui ) {
                 d3.event = event;
                 var selected_tool = ui.draggable[0].type;
-
                 var m = /^subflow:(.+)$/.exec(selected_tool);
 
                 if (activeSubflow && m) {
@@ -313,16 +332,9 @@ RED.view = (function() {
                         RED.notify(RED._("notification.error",{message: RED._("notification.errors.cannotAddCircularReference")}),"error");
                         return;
                     }
-
                 }
 
-                var mousePos = d3.touches(this)[0]||d3.mouse(this);
-                mousePos[1] += this.scrollTop;
-                mousePos[0] += this.scrollLeft;
-                mousePos[1] /= scaleFactor;
-                mousePos[0] /= scaleFactor;
-
-                var nn = { id:(1+Math.random()*4294967295).toString(16),x: mousePos[0],y:mousePos[1],w:node_width,z:RED.workspaces.active()};
+                var nn = { id:(1+Math.random()*4294967295).toString(16),z:RED.workspaces.active()};
 
                 nn.type = selected_tool;
                 nn._def = RED.nodes.getType(nn.type);
@@ -338,7 +350,11 @@ RED.view = (function() {
                     }
 
                     if (nn._def.onadd) {
-                        nn._def.onadd.call(nn);
+                        try {
+                            nn._def.onadd.call(nn);
+                        } catch(err) {
+                            console.log("onadd:",err);
+                        }
                     }
                 } else {
                     var subflow = RED.nodes.subflow(m[1]);
@@ -347,7 +363,10 @@ RED.view = (function() {
                 }
 
                 nn.changed = true;
+
+                nn.w = node_width;
                 nn.h = Math.max(node_height,(nn.outputs||0) * 15);
+
                 var historyEvent = {
                     t:'add',
                     nodes:[nn.id],
@@ -362,6 +381,41 @@ RED.view = (function() {
                             instances: subflowRefresh.instances
                         }
                     }
+                }
+
+                var helperOffset = d3.touches(ui.helper.get(0))[0]||d3.mouse(ui.helper.get(0));
+                var mousePos = d3.touches(this)[0]||d3.mouse(this);
+
+                mousePos[1] += this.scrollTop + ((nn.h/2)-helperOffset[1]);
+                mousePos[0] += this.scrollLeft + ((nn.w/2)-helperOffset[0]);
+                mousePos[1] /= scaleFactor;
+                mousePos[0] /= scaleFactor;
+
+                if (snapGrid) {
+                    mousePos[0] = gridSize*(Math.ceil(mousePos[0]/gridSize));
+                    mousePos[1] = gridSize*(Math.ceil(mousePos[1]/gridSize));
+                }
+                nn.x = mousePos[0];
+                nn.y = mousePos[1];
+
+                var spliceLink = $(ui.helper).data('splice');
+                if (spliceLink) {
+                    // TODO: DRY - canvasMouseUp
+                    RED.nodes.removeLink(spliceLink);
+                    var link1 = {
+                        source:spliceLink.source,
+                        sourcePort:spliceLink.sourcePort,
+                        target: nn
+                    };
+                    var link2 = {
+                        source:nn,
+                        sourcePort:0,
+                        target: spliceLink.target
+                    };
+                    RED.nodes.addLink(link1);
+                    RED.nodes.addLink(link2);
+                    historyEvent.links = [link1,link2];
+                    historyEvent.removedLinks = [spliceLink];
                 }
 
                 RED.history.push(historyEvent);
@@ -420,6 +474,8 @@ RED.view = (function() {
     }
 
     function canvasMouseMove() {
+        var i;
+        var node;
         mouse_position = d3.touches(this)[0]||d3.mouse(this);
         // Prevent touch scrolling...
         //if (d3.touches(this)[0]) {
@@ -466,36 +522,73 @@ RED.view = (function() {
         var mousePos;
         if (mouse_mode == RED.state.JOINING) {
             // update drag line
-            drag_line.attr("class", "drag_line");
-            mousePos = mouse_position;
-            var numOutputs = (mousedown_port_type === 0)?(mousedown_node.outputs || 1):1;
-            var sourcePort = mousedown_port_index;
-            var portY = -((numOutputs-1)/2)*13 +13*sourcePort;
-
-            var sc = (mousedown_port_type === 0)?1:-1;
-
-            var dy = mousePos[1]-(mousedown_node.y+portY);
-            var dx = mousePos[0]-(mousedown_node.x+sc*mousedown_node.w/2);
-            var delta = Math.sqrt(dy*dy+dx*dx);
-            var scale = lineCurveScale;
-            var scaleY = 0;
-
-            if (delta < node_width) {
-                scale = 0.75-0.75*((node_width-delta)/node_width);
-            }
-            if (dx*sc < 0) {
-                scale += 2*(Math.min(5*node_width,Math.abs(dx))/(5*node_width));
-                if (Math.abs(dy) < 3*node_height) {
-                    scaleY = ((dy>0)?0.5:-0.5)*(((3*node_height)-Math.abs(dy))/(3*node_height))*(Math.min(node_width,Math.abs(dx))/(node_width)) ;
+            if (drag_lines.length === 0) {
+                if (d3.event.shiftKey) {
+                    // Get all the wires we need to detach.
+                    var links = [];
+                    var filter;
+                    if (mousedown_port_type === 0) {
+                        filter = {
+                            source:mousedown_node,
+                            sourcePort: mousedown_port_index
+                        }
+                    } else {
+                        filter = {
+                            target: mousedown_node
+                        }
+                    }
+                    var existingLinks = RED.nodes.filterLinks(filter);
+                    for (i=0;i<existingLinks.length;i++) {
+                        var link = existingLinks[i];
+                        RED.nodes.removeLink(link);
+                        links.push({
+                            link:link,
+                            node: (mousedown_port_type===0)?link.target:link.source,
+                            port: (mousedown_port_type===0)?0:link.sourcePort,
+                            portType: (mousedown_port_type===0)?1:0
+                        })
+                    }
+                    showDragLines(links);
+                    mouse_mode = 0;
+                    updateActiveNodes();
+                    redraw();
+                    mouse_mode = RED.state.JOINING;
+                } else {
+                    showDragLines([{node:mousedown_node,port:mousedown_port_index,portType:mousedown_port_type}]);
                 }
             }
+            mousePos = mouse_position;
+            for (i=0;i<drag_lines.length;i++) {
+                var drag_line = drag_lines[i];
+                var numOutputs = (drag_line.portType === 0)?(drag_line.node.outputs || 1):1;
+                var sourcePort = drag_line.port;
+                var portY = -((numOutputs-1)/2)*13 +13*sourcePort;
 
-            drag_line.attr("d",
-                "M "+(mousedown_node.x+sc*mousedown_node.w/2)+" "+(mousedown_node.y+portY)+
-                " C "+(mousedown_node.x+sc*(mousedown_node.w/2+node_width*scale))+" "+(mousedown_node.y+portY+scaleY*node_height)+" "+
-                (mousePos[0]-sc*(scale)*node_width)+" "+(mousePos[1]-scaleY*node_height)+" "+
-                mousePos[0]+" "+mousePos[1]
-                );
+                var sc = (drag_line.portType === 0)?1:-1;
+
+                var dy = mousePos[1]-(drag_line.node.y+portY);
+                var dx = mousePos[0]-(drag_line.node.x+sc*drag_line.node.w/2);
+                var delta = Math.sqrt(dy*dy+dx*dx);
+                var scale = lineCurveScale;
+                var scaleY = 0;
+
+                if (delta < node_width) {
+                    scale = 0.75-0.75*((node_width-delta)/node_width);
+                }
+                if (dx*sc < 0) {
+                    scale += 2*(Math.min(5*node_width,Math.abs(dx))/(5*node_width));
+                    if (Math.abs(dy) < 3*node_height) {
+                        scaleY = ((dy>0)?0.5:-0.5)*(((3*node_height)-Math.abs(dy))/(3*node_height))*(Math.min(node_width,Math.abs(dx))/(node_width)) ;
+                    }
+                }
+
+                drag_line.el.attr("d",
+                    "M "+(drag_line.node.x+sc*drag_line.node.w/2)+" "+(drag_line.node.y+portY)+
+                    " C "+(drag_line.node.x+sc*(drag_line.node.w/2+node_width*scale))+" "+(drag_line.node.y+portY+scaleY*node_height)+" "+
+                    (mousePos[0]-sc*(scale)*node_width)+" "+(mousePos[1]-scaleY*node_height)+" "+
+                    mousePos[0]+" "+mousePos[1]
+                    );
+            }
             d3.event.preventDefault();
         } else if (mouse_mode == RED.state.MOVING) {
             mousePos = d3.mouse(document.body);
@@ -506,11 +599,17 @@ RED.view = (function() {
             if (d > 3) {
                 mouse_mode = RED.state.MOVING_ACTIVE;
                 clickElapsed = 0;
+                spliceActive = false;
+                if (moving_set.length === 1) {
+                    node = moving_set[0];
+                    spliceActive = node.n._def.inputs > 0 &&
+                                   node.n._def.outputs > 0 &&
+                                   RED.nodes.filterLinks({ source: node.n }).length === 0 &&
+                                   RED.nodes.filterLinks({ target: node.n }).length === 0;
+                }
             }
         } else if (mouse_mode == RED.state.MOVING_ACTIVE || mouse_mode == RED.state.IMPORT_DRAGGING) {
             mousePos = mouse_position;
-            var node;
-            var i;
             var minX = 0;
             var minY = 0;
             for (var n = 0; n<moving_set.length; n++) {
@@ -532,11 +631,11 @@ RED.view = (function() {
                     node.n.y -= minY;
                 }
             }
-            if (d3.event.shiftKey && moving_set.length > 0) {
-                var gridOffset =  [0,0];
+            if (snapGrid != d3.event.shiftKey && moving_set.length > 0) {
+                var gridOffset = [0,0];
                 node = moving_set[0];
-                gridOffset[0] = node.n.x-(20*Math.floor((node.n.x-node.n.w/2)/20)+node.n.w/2);
-                gridOffset[1] = node.n.y-(20*Math.floor(node.n.y/20));
+                gridOffset[0] = node.n.x-(gridSize*Math.floor((node.n.x-node.n.w/2)/gridSize)+node.n.w/2);
+                gridOffset[1] = node.n.y-(gridSize*Math.floor(node.n.y/gridSize));
                 if (gridOffset[0] !== 0 || gridOffset[1] !== 0) {
                     for (i = 0; i<moving_set.length; i++) {
                         node = moving_set[i];
@@ -548,6 +647,57 @@ RED.view = (function() {
                     }
                 }
             }
+            if (mouse_mode == RED.state.MOVING_ACTIVE && moving_set.length === 1) {
+                node = moving_set[0];
+                if (spliceActive) {
+                    if (!spliceTimer) {
+                        spliceTimer = setTimeout(function() {
+                            var nodes = [];
+                            var bestDistance = Infinity;
+                            var bestLink = null;
+                            var mouseX = mousePos[0];
+                            var mouseY = mousePos[1];
+                            if (outer[0][0].getIntersectionList) {
+                                var svgRect = outer[0][0].createSVGRect();
+                                svgRect.x = mouseX;
+                                svgRect.y = mouseY;
+                                svgRect.width = 1;
+                                svgRect.height = 1;
+                                nodes = outer[0][0].getIntersectionList(svgRect, outer[0][0]);
+                            } else {
+                                // Firefox doesn't do getIntersectionList and that
+                                // makes us sad
+                                nodes = RED.view.getLinksAtPoint(mouseX,mouseY);
+                            }
+                            for (var i=0;i<nodes.length;i++) {
+                                if (d3.select(nodes[i]).classed('link_background')) {
+                                    var length = nodes[i].getTotalLength();
+                                    for (var j=0;j<length;j+=10) {
+                                        var p = nodes[i].getPointAtLength(j);
+                                        var d2 = ((p.x-mouseX)*(p.x-mouseX))+((p.y-mouseY)*(p.y-mouseY));
+                                        if (d2 < 200 && d2 < bestDistance) {
+                                            bestDistance = d2;
+                                            bestLink = nodes[i];
+                                        }
+                                    }
+                                }
+                            }
+                            if (activeSpliceLink && activeSpliceLink !== bestLink) {
+                                d3.select(activeSpliceLink.parentNode).classed('link_splice',false);
+                            }
+                            if (bestLink) {
+                                d3.select(bestLink.parentNode).classed('link_splice',true)
+                            } else {
+                                d3.select('.link_splice').classed('link_splice',false);
+                            }
+                            activeSpliceLink = bestLink;
+                            spliceTimer = null;
+                        },100);
+                    }
+                }
+            }
+
+
         }
         if (mouse_mode !== 0) {
             redraw();
@@ -555,8 +705,22 @@ RED.view = (function() {
     }
 
     function canvasMouseUp() {
+        var i;
+        var historyEvent;
         if (mousedown_node && mouse_mode == RED.state.JOINING) {
-            drag_line.attr("class", "drag_line_hidden");
+            var removedLinks = [];
+            for (i=0;i<drag_lines.length;i++) {
+                if (drag_lines[i].link) {
+                    removedLinks.push(drag_lines[i].link)
+                }
+            }
+            historyEvent = {
+                t:'delete',
+                links: removedLinks,
+                dirty:RED.nodes.dirty()
+            };
+            RED.history.push(historyEvent);
+            hideDragLines();
         }
         if (lasso) {
             var x = parseInt(lasso.attr("x"));
@@ -594,7 +758,7 @@ RED.view = (function() {
             updateSelection();
             lasso.remove();
             lasso = null;
-        } else if (mouse_mode == RED.state.DEFAULT && mousedown_link == null && !d3.event.ctrlKey ) {
+        } else if (mouse_mode == RED.state.DEFAULT && mousedown_link == null && !d3.event.ctrlKey&& !d3.event.metaKey ) {
             clearSelection();
             updateSelection();
         }
@@ -604,11 +768,33 @@ RED.view = (function() {
                 for (var j=0;j<moving_set.length;j++) {
                     ns.push({n:moving_set[j].n,ox:moving_set[j].ox,oy:moving_set[j].oy});
                 }
-                RED.history.push({t:'move',nodes:ns,dirty:RED.nodes.dirty()});
+                historyEvent = {t:'move',nodes:ns,dirty:RED.nodes.dirty()};
+                if (activeSpliceLink) {
+                    // TODO: DRY - droppable
+                    var spliceLink = d3.select(activeSpliceLink).data()[0];
+                    RED.nodes.removeLink(spliceLink);
+                    var link1 = {
+                        source:spliceLink.source,
+                        sourcePort:spliceLink.sourcePort,
+                        target: moving_set[0].n
+                    };
+                    var link2 = {
+                        source:moving_set[0].n,
+                        sourcePort:0,
+                        target: spliceLink.target
+                    };
+                    RED.nodes.addLink(link1);
+                    RED.nodes.addLink(link2);
+                    historyEvent.links = [link1,link2];
+                    historyEvent.removedLinks = [spliceLink];
+                    updateActiveNodes();
+                }
+                RED.nodes.dirty(true);
+                RED.history.push(historyEvent);
             }
         }
         if (mouse_mode == RED.state.MOVING || mouse_mode == RED.state.MOVING_ACTIVE) {
-            for (var i=0;i<moving_set.length;i++) {
+            for (i=0;i<moving_set.length;i++) {
                 delete moving_set[i].ox;
                 delete moving_set[i].oy;
             }
@@ -724,6 +910,7 @@ RED.view = (function() {
             delete moving_set[i].oy;
         }
         RED.history.push({t:'move',nodes:ns,dirty:RED.nodes.dirty()});
+        RED.nodes.dirty(true);
     }
     function moveSelection(dx,dy) {
         var minX = 0;
@@ -876,6 +1063,13 @@ RED.view = (function() {
         mousedown_link = null;
         mouse_mode = 0;
         mousedown_port_type = 0;
+        activeSpliceLink = null;
+        spliceActive = false;
+        d3.select('.link_splice').classed('link_splice',false);
+        if (spliceTimer) {
+            clearTimeout(spliceTimer);
+            spliceTimer = null;
+        }
     }
 
     function portMouseDown(d,portType,portIndex) {
@@ -892,46 +1086,59 @@ RED.view = (function() {
     }
 
     function portMouseUp(d,portType,portIndex) {
+        var i;
         document.body.style.cursor = "";
-        if (mouse_mode == RED.state.JOINING && mousedown_node) {
+        if (mouse_mode == RED.state.JOINING && drag_lines.length > 0) {
             if (typeof TouchEvent != "undefined" && d3.event instanceof TouchEvent) {
                 RED.nodes.eachNode(function(n) {
-                        if (n.z == RED.workspaces.active()) {
-                            var hw = n.w/2;
-                            var hh = n.h/2;
-                            if (n.x-hw<mouse_position[0] && n.x+hw> mouse_position[0] &&
-                                n.y-hh<mouse_position[1] && n.y+hh>mouse_position[1]) {
-                                    mouseup_node = n;
-                                    portType = mouseup_node.inputs>0?1:0;
-                                    portIndex = 0;
-                            }
+                    if (n.z == RED.workspaces.active()) {
+                        var hw = n.w/2;
+                        var hh = n.h/2;
+                        if (n.x-hw<mouse_position[0] && n.x+hw> mouse_position[0] &&
+                            n.y-hh<mouse_position[1] && n.y+hh>mouse_position[1]) {
+                                mouseup_node = n;
+                                portType = mouseup_node.inputs>0?1:0;
+                                portIndex = 0;
                         }
+                    }
                 });
             } else {
                 mouseup_node = d;
             }
-            if (portType == mousedown_port_type || mouseup_node === mousedown_node) {
-                drag_line.attr("class", "drag_line_hidden");
-                resetMouseVars();
-                return;
+            var addedLinks = [];
+            var removedLinks = [];
+
+            for (i=0;i<drag_lines.length;i++) {
+                if (drag_lines[i].link) {
+                    removedLinks.push(drag_lines[i].link)
+                }
             }
-            var src,dst,src_port;
-            if (mousedown_port_type === 0) {
-                src = mousedown_node;
-                src_port = mousedown_port_index;
-                dst = mouseup_node;
-            } else if (mousedown_port_type == 1) {
-                src = mouseup_node;
-                dst = mousedown_node;
-                src_port = portIndex;
+            for (i=0;i<drag_lines.length;i++) {
+                if (portType != drag_lines[i].portType && mouseup_node !== drag_lines[i].node) {
+                    var drag_line = drag_lines[i];
+                    var src,dst,src_port;
+                    if (drag_line.portType === 0) {
+                        src = drag_line.node;
+                        src_port = drag_line.port;
+                        dst = mouseup_node;
+                    } else if (drag_line.portType == 1) {
+                        src = mouseup_node;
+                        dst = drag_line.node;
+                        src_port = portIndex;
+                    }
+                    var existingLink = RED.nodes.filterLinks({source:src,target:dst,sourcePort: src_port}).length !== 0;
+                    if (!existingLink) {
+                        var link = {source: src, sourcePort:src_port, target: dst};
+                        RED.nodes.addLink(link);
+                        addedLinks.push(link);
+                    }
+                }
             }
-            var existingLink = RED.nodes.filterLinks({source:src,target:dst,sourcePort: src_port}).length !== 0;
-            if (!existingLink) {
-                var link = {source: src, sourcePort:src_port, target: dst};
-                RED.nodes.addLink(link);
+            if (addedLinks.length > 0 || removedLinks.length > 0) {
                 var historyEvent = {
                     t:'add',
-                    links:[link],
+                    links:addedLinks,
+                    removedLinks: removedLinks,
                     dirty:RED.nodes.dirty()
                 };
                 if (activeSubflow) {
@@ -947,8 +1154,9 @@ RED.view = (function() {
                 RED.history.push(historyEvent);
                 updateActiveNodes();
                 RED.nodes.dirty(true);
-            } else {
             }
+            resetMouseVars();
+            hideDragLines();
             selected_link = null;
             redraw();
         }
@@ -994,10 +1202,10 @@ RED.view = (function() {
 
         var i;
 
-        if (d.selected && d3.event.ctrlKey) {
-            d.selected = false;
+        if (d.selected && (d3.event.ctrlKey||d3.event.metaKey)) {
+            mousedown_node.selected = false;
             for (i=0;i<moving_set.length;i+=1) {
-                if (moving_set[i].n === d) {
+                if (moving_set[i].n === mousedown_node) {
                     moving_set.splice(i,1);
                     break;
                 }
@@ -1012,7 +1220,7 @@ RED.view = (function() {
                     moving_set.push({n:cnodes[n]});
                 }
             } else if (!d.selected) {
-                if (!d3.event.ctrlKey) {
+                if (!d3.event.ctrlKey && !d3.event.metaKey) {
                     clearSelection();
                 }
                 mousedown_node.selected = true;
@@ -1049,7 +1257,11 @@ RED.view = (function() {
                 d.dirty = true;
             }
             if (d._def.button.onclick) {
-                d._def.button.onclick.call(d);
+                try {
+                    d._def.button.onclick.call(d);
+                } catch(err) {
+                    console.log("Definition error: "+d.type+".onclick",err);
+                }
             }
             if (d.dirty) {
                 redraw();
@@ -1065,7 +1277,7 @@ RED.view = (function() {
     function showTouchMenu(obj,pos) {
         var mdn = mousedown_node;
         var options = [];
-        options.push({name:"delete",disabled:(moving_set.length===0),onselect:function() {deleteSelection();}});
+        options.push({name:"delete",disabled:(moving_set.length===0 && selected_link === null),onselect:function() {deleteSelection();}});
         options.push({name:"cut",disabled:(moving_set.length===0),onselect:function() {copySelection();deleteSelection();}});
         options.push({name:"copy",disabled:(moving_set.length===0),onselect:function() {copySelection();}});
         options.push({name:"paste",disabled:(clipboard.length===0),onselect:function() {importNodes(clipboard,true);}});
@@ -1123,7 +1335,7 @@ RED.view = (function() {
                     .on("touchstart", function(d,i){portMouseDown(d,1,0);} )
                     .on("mouseup", function(d,i){portMouseUp(d,1,0);})
                     .on("touchend",function(d,i){portMouseUp(d,1,0);} )
-                    .on("mouseover",function(d,i) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || mousedown_port_type !== 0 ));})
+                    .on("mouseover",function(d,i) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || (drag_lines.length > 0 && drag_lines[0].portType !== 1)));})
                     .on("mouseout",function(d,i) { var port = d3.select(this); port.classed("port_hovered",false);});
 
                 outGroup.append("svg:text").attr('class','port_label').attr('x',20).attr('y',8).style("font-size","10px").text("output");
@@ -1166,7 +1378,7 @@ RED.view = (function() {
                     .on("touchstart", function(d,i){portMouseDown(d,0,i);} )
                     .on("mouseup", function(d,i){portMouseUp(d,0,i);})
                     .on("touchend",function(d,i){portMouseUp(d,0,i);} )
-                    .on("mouseover",function(d,i) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || mousedown_port_type !== 0 ));})
+                    .on("mouseover",function(d,i) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || (drag_lines.length > 0 && drag_lines[0].portType !== 0) ));})
                     .on("mouseout",function(d,i) { var port = d3.select(this); port.classed("port_hovered",false);});
                 inGroup.append("svg:text").attr('class','port_label').attr('x',18).attr('y',20).style("font-size","10px").text("input");
 
@@ -1204,8 +1416,13 @@ RED.view = (function() {
                     var node = d3.select(this);
                     node.attr("id",d.id);
                     var l = d._def.label;
-                    l = (typeof l === "function" ? l.call(d) : l)||"";
-                    d.w = Math.max(node_width,calculateTextWidth(l, "node_label", 50)+(d._def.inputs>0?7:0) );
+                    try {
+                        l = (typeof l === "function" ? l.call(d) : l)||"";
+                    } catch(err) {
+                        console.log("Definition error: "+d.type+".label",err);
+                        l = d.type;
+                    }
+                    d.w = Math.max(node_width,gridSize*(Math.ceil((calculateTextWidth(l, "node_label", 50)+(d._def.inputs>0?7:0))/gridSize)) );
                     d.h = Math.max(node_height,(d.outputs||0) * 15);
 
                     if (d._def.badge) {
@@ -1387,9 +1604,16 @@ RED.view = (function() {
                         //if (d.x < -50) deleteSelection();  // Delete nodes if dragged back to palette
                         if (d.resize) {
                             var l = d._def.label;
-                            l = (typeof l === "function" ? l.call(d) : l)||"";
-                            d.w = Math.max(node_width,calculateTextWidth(l, "node_label", 50)+(d._def.inputs>0?7:0) );
+                            try {
+                                l = (typeof l === "function" ? l.call(d) : l)||"";
+                            } catch(err) {
+                                console.log("Definition error: "+d.type+".label",err);
+                                l = d.type;
+                            }
+                            var ow = d.w;
+                            d.w = Math.max(node_width,gridSize*(Math.ceil((calculateTextWidth(l, "node_label", 50)+(d._def.inputs>0?7:0))/gridSize)) );
                             d.h = Math.max(node_height,(d.outputs||0) * 15);
+                            d.x += (d.w-ow)/2;
                             d.resize = false;
                         }
                         var thisNode = d3.select(this);
@@ -1423,7 +1647,7 @@ RED.view = (function() {
                                     .on("touchstart",function(d){portMouseDown(d,1,0);})
                                     .on("mouseup",function(d){portMouseUp(d,1,0);} )
                                     .on("touchend",function(d){portMouseUp(d,1,0);} )
-                                    .on("mouseover",function(d) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || mousedown_port_type != 1 ));})
+                                    .on("mouseover",function(d) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || (drag_lines.length > 0 && drag_lines[0].portType !== 1) ));})
                                     .on("mouseout",function(d) { var port = d3.select(this); port.classed("port_hovered",false);})
                             }
 
@@ -1438,7 +1662,7 @@ RED.view = (function() {
                                 .on("touchstart",(function(){var node = d; return function(d,i){portMouseDown(node,0,i);}})() )
                                 .on("mouseup",(function(){var node = d; return function(d,i){portMouseUp(node,0,i);}})() )
                                 .on("touchend",(function(){var node = d; return function(d,i){portMouseUp(node,0,i);}})() )
-                                .on("mouseover",function(d,i) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || mousedown_port_type !== 0 ));})
+                                .on("mouseover",function(d,i) { var port = d3.select(this); port.classed("port_hovered",(mouse_mode!=RED.state.JOINING || (drag_lines.length > 0 && drag_lines[0].portType !== 0) ));})
                                 .on("mouseout",function(d,i) { var port = d3.select(this); port.classed("port_hovered",false);});
 
                             d._ports.exit().remove();
@@ -1453,20 +1677,33 @@ RED.view = (function() {
                                 });
                             }
                             thisNode.selectAll('text.node_label').text(function(d,i){
+                                    var l = "";
                                     if (d._def.label) {
-                                        if (typeof d._def.label == "function") {
-                                            return d._def.label.call(d);
-                                        } else {
-                                            return d._def.label;
+                                        l = d._def.label;
+                                        try {
+                                            l = (typeof l === "function" ? l.call(d) : l)||"";
+                                        } catch(err) {
+                                            console.log("Definition error: "+d.type+".label",err);
+                                            l = d.type;
                                         }
                                     }
-                                    return "";
+                                    return l;
                                 })
                                 .attr('y', function(d){return (d.h/2)-1;})
                                 .attr('class',function(d){
+                                    var s = "";
+                                    if (d._def.labelStyle) {
+                                        s = d._def.labelStyle;
+                                        try {
+                                            s = (typeof s === "function" ? s.call(d) : s)||"";
+                                        } catch(err) {
+                                            console.log("Definition error: "+d.type+".labelStyle",err);
+                                            s = "";
+                                        }
+                                        s = " "+s;
+                                    }
                                     return 'node_label'+
-                                    (d._def.align?' node_label_'+d._def.align:'')+
-                                    (d._def.labelStyle?' '+(typeof d._def.labelStyle == "function" ? d._def.labelStyle.call(d):d._def.labelStyle):'') ;
+                                    (d._def.align?' node_label_'+d._def.align:'')+s;
                             });
 
                             if (d._def.icon) {
@@ -1474,7 +1711,12 @@ RED.view = (function() {
                                 var current_url = icon.attr("xlink:href");
                                 var icon_url;
                                 if (typeof d._def.icon == "function") {
-                                    icon_url = d._def.icon.call(d);
+                                    try {
+                                        icon_url = d._def.icon.call(d);
+                                    } catch(err) {
+                                        console.log("icon",err);
+                                        icon_url = "arrow-in.png";
+                                    }
                                 } else {
                                     icon_url = d._def.icon;
                                 }
@@ -1538,7 +1780,12 @@ RED.view = (function() {
                             thisNode.selectAll('text.node_badge_label').text(function(d,i) {
                                 if (d._def.badge) {
                                     if (typeof d._def.badge == "function") {
-                                        return d._def.badge.call(d);
+                                        try {
+                                            return d._def.badge.call(d);
+                                        } catch(err) {
+                                            console.log("Definition error: "+d.type+".badge",err);
+                                            return "";
+                                        }
                                     } else {
                                         return d._def.badge;
                                     }
@@ -1610,7 +1857,15 @@ RED.view = (function() {
                         redraw();
                         focusView();
                         d3.event.stopPropagation();
-                    });
+
+                        var obj = d3.select(document.body);
+                        var touch0 = d3.event.touches.item(0);
+                        var pos = [touch0.pageX,touch0.pageY];
+                        touchStartTime = setTimeout(function() {
+                            touchStartTime = null;
+                            showTouchMenu(obj,pos);
+                        },touchLongPressTimeout);
+                    })
                 l.append("svg:path").attr("class","link_outline link_path");
                 l.append("svg:path").attr("class","link_line link_path")
                     .classed("link_subflow", function(d) { return activeSubflow && (d.source.type === "subflow" || d.target.type === "subflow") });
@@ -1836,6 +2091,31 @@ RED.view = (function() {
                 selection.link = selected_link;
             }
             return selection;
+        },
+        toggleShowGrid: function(state) {
+            if (state) {
+                grid.style("visibility","visible");
+            } else {
+                grid.style("visibility","hidden");
+            }
+        },
+        toggleSnapGrid: function(state) {
+            snapGrid = state;
+            redraw();
+        },
+        scale: function() {
+            return scaleFactor;
+        },
+        getLinksAtPoint: function(x,y) {
+            var result = [];
+            var links = outer.selectAll(".link_background")[0];
+            for (var i=0;i<links.length;i++) {
+                var bb = links[i].getBBox();
+                if (x >= bb.x && y >= bb.y && x <= bb.x+bb.width && y <= bb.y+bb.height) {
+                    result.push(links[i])
+                }
+            }
+            return result;
         }
     };
 })();

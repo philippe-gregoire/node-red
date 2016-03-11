@@ -63,6 +63,8 @@ module.exports = function(RED) {
                               this.func+"\n"+
                            "})(msg);";
         this.topic = n.topic;
+        this.outstandingTimers = [];
+        this.outstandingIntervals = [];
         var sandbox = {
             console:console,
             util:util,
@@ -88,10 +90,78 @@ module.exports = function(RED) {
                 }
             },
             context: {
-                global:RED.settings.functionGlobalContext || {}
+                set: function() {
+                    node.context().set.apply(node,arguments);
+                },
+                get: function() {
+                    return node.context().get.apply(node,arguments);
+                },
+                get global() {
+                    return node.context().global;
+                },
+                get flow() {
+                    return node.context().flow;
+                }
             },
-            setTimeout: setTimeout,
-            clearTimeout: clearTimeout
+            flow: {
+                set: function() {
+                    node.context().flow.set.apply(node,arguments);
+                },
+                get: function() {
+                    return node.context().flow.get.apply(node,arguments);
+                }
+            },
+            global: {
+                set: function() {
+                    node.context().global.set.apply(node,arguments);
+                },
+                get: function() {
+                    return node.context().global.get.apply(node,arguments);
+                }
+            },
+            setTimeout: function () {
+                var func = arguments[0];
+                var timerId;
+                arguments[0] = function() {
+                    sandbox.clearTimeout(timerId);
+                    try {
+                        func.apply(this,arguments);
+                    } catch(err) {
+                        node.error(err,{});
+                    }
+                };
+                timerId = setTimeout.apply(this,arguments);
+                node.outstandingTimers.push(timerId);
+                return timerId;
+            },
+            clearTimeout: function(id) {
+                clearTimeout(id);
+                var index = node.outstandingTimers.indexOf(id);
+                if (index > -1) {
+                    node.outstandingTimers.splice(index,1);
+                }
+            },
+            setInterval: function() {
+                var func = arguments[0];
+                var timerId;
+                arguments[0] = function() {
+                    try {
+                        func.apply(this,arguments);
+                    } catch(err) {
+                        node.error(err,{});
+                    }
+                };
+                timerId = setInterval.apply(this,arguments);
+                node.outstandingIntervals.push(timerId);
+                return timerId;
+            },
+            clearInterval: function(id) {
+                clearInterval(id);
+                var index = node.outstandingIntervals.indexOf(id);
+                if (index > -1) {
+                    node.outstandingIntervals.splice(index,1);
+                }
+            }
         };
         var context = vm.createContext(sandbox);
         try {
@@ -135,6 +205,14 @@ module.exports = function(RED) {
                     this.error(errorMessage, msg);
                 }
             });
+            this.on("close", function() {
+                while(node.outstandingTimers.length > 0) {
+                    clearTimeout(node.outstandingTimers.pop())
+                }
+                while(node.outstandingIntervals.length > 0) {
+                    clearInterval(node.outstandingIntervals.pop())
+                }
+            })
         } catch(err) {
             // eg SyntaxError - which v8 doesn't include line number information
             // so we can't do better than this

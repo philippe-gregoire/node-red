@@ -35,7 +35,7 @@
 </head>
 <body spellcheck="false">
 <div id="header">
-    <span class="logo">{{#header.url}}<a href="{{.}}">{{/header.url}}{{#header.image}}<img src="{{.}}">{{/header.image}} <span>{{ header.title }}</span>{{#header.url}}</a>{{/header.url}}</span>
+    <span class="logo">{{#header.url}}<a href="{{.}}">{{/header.url}}{{#header.image}}<img src="{{.}}" title="{{version}}">{{/header.image}} <span>{{ header.title }}</span>{{#header.url}}</a>{{/header.url}}</span>
     <ul class="header-toolbar hide">
         <li><a id="btn-sidemenu" class="button" data-toggle="dropdown" href="#"><i class="fa fa-bars"></i></a></li>
     <ul>
@@ -83,10 +83,17 @@
 <div id="subflow-dialog" class="hide">
     <form class="form-horizontal">
         <div class="form-row">
-            <label data-i18n="common.label.name"></label><input type="text" id="subflow-input-name">
+            <label for="subflow-input-name" data-i18n="common.label.name"></label><input type="text" id="subflow-input-name">
         </div>
+        <div class="form-row" style="margin-bottom: 0px;">
+            <label for="subflow-input-info" data-i18n="subflow.info"></label>
+            <a href="https://help.github.com/articles/markdown-basics/" style="font-size: 0.8em; float: right;" data-i18n="[html]subflow.format"></a>
+        </div>
+        <div class="form-row node-text-editor-row">
+            <div style="height: 250px;" class="node-text-editor" id="subflow-input-info-editor"></div>
+        </div>
+        <div class="form-row form-tips" id="subflow-dialog-user-count"></div>
     </form>
-    <div class="form-tips" id="subflow-dialog-user-count"></div>
 </div>
 
 <div id="node-dialog-confirm-deploy" class="hide">
@@ -96,9 +103,6 @@
         </div>
         <div id="node-dialog-confirm-deploy-unknown" style="text-align: left; padding-top: 10px;" data-i18n="[prepend]deploy.confirm.unknown;[append]deploy.confirm.confirm">
             <ul style="font-size: 0.9em; width: 400px; margin: 10px auto; text-align: left;" id="node-dialog-confirm-deploy-unknown-list"></ul>
-        </div>
-        <div id="node-dialog-confirm-deploy-unused" style="text-align: left; padding-top: 10px;" data-i18n="[prepend]deploy.confirm.unusedConfig;[append]deploy.confirm.confirm">
-            <ul style="font-size: 0.9em; width: 400px; margin: 10px auto; text-align: left;" id="node-dialog-confirm-deploy-unused-list"></ul>
         </div>
     </form>
 </div>
@@ -154,13 +158,6 @@
         </div>
     </form>
 </div>
-
-<script type="text/x-red" data-template-name="export-library-dialog">
-    <div class="form-row">
-        <label for="node-input-filename" data-i18n="[append]editor:library.filename"><i class="fa fa-file"></i> </label>
-        <input type="text" id="node-input-filename" data-i18n="[placeholder]editor:library.fullFilenamePlaceholder">
-    </div>
-</script>
 
 <script type="text/x-red" data-template-name="subflow">
     <div class="form-row">

@@ -13,23 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-var redNodes = require("../nodes");
-var comms = require("../comms");
-var server = require("../server");
-var log = require("../log");
-var i18n = require("../i18n");
 
 var when = require("when");
-
-var settings = require("../settings");
+var comms = require("./comms");
+var locales = require("./locales");
+var redNodes;
+var log;
+var i18n;
+var settings;
 
 module.exports = {
+    init: function(runtime) {
+        redNodes = runtime.nodes;
+        log = runtime.log;
+        i18n = runtime.i18n;
+        settings = runtime.settings;
+    },
     getAll: function(req,res) {
         if (req.get("accept") == "application/json") {
             log.audit({event: "nodes.list.get"},req);
             res.json(redNodes.getNodeList());
         } else {
-            var lang = i18n.determineLangFromHeaders(req.acceptsLanguages());
+            var lang = locales.determineLangFromHeaders(req.acceptsLanguages());
             log.audit({event: "nodes.configs.get"},req);
             res.send(redNodes.getNodeConfigs(lang));
         }
@@ -50,31 +55,27 @@ module.exports = {
                 res.status(400).json({error:"module_already_loaded", message:"Module already loaded"});
                 return;
             }
-            promise = server.installModule(node.module);
-        } else if (node.file) {
-            promise = server.installNode(node.file);
+            promise = redNodes.installModule(node.module);
         } else {
             log.audit({event: "nodes.install",module:node.module,error:"invalid_request"},req);
             res.status(400).json({error:"invalid_request", message:"Invalid request"});
             return;
         }
         promise.then(function(info) {
+            comms.publish("node/added",info.nodes,false);
             if (node.module) {
                 log.audit({event: "nodes.install",module:node.module},req);
-                res.json(redNodes.getModuleInfo(node.module));
-            } else if (node.file) {
-                log.audit({event: "nodes.install",file:node.file},req);
-                res.json(info.nodes[0]);
+                res.json(info);
             }
         }).otherwise(function(err) {
             if (err.code === 404) {
-                log.audit({event: "nodes.install",module:node.module,file:node.file,error:"not_found"},req);
+                log.audit({event: "nodes.install",module:node.module,error:"not_found"},req);
                 res.status(404).end();
             } else if (err.code) {
                 log.audit({event: "nodes.install",module:node.module,error:err.code},req);
                 res.status(400).json({error:err.code, message:err.message});
             } else {
-                log.audit({event: "nodes.install",module:node.module,file:node.file,error:err.code||"unexpected_error",message:err.toString()},req);
+                log.audit({event: "nodes.install",module:node.module,error:err.code||"unexpected_error",message:err.toString()},req);
                 res.status(400).json({error:err.code||"unexpected_error", message:err.toString()});
             }
         });
@@ -95,10 +96,11 @@ module.exports = {
                 res.status(404).end();
                 return;
             } else {
-                promise = server.uninstallModule(mod);
+                promise = redNodes.uninstallModule(mod);
             }
 
-            promise.then(function() {
+            promise.then(function(list) {
+                comms.publish("node/removed",list,false);
                 log.audit({event: "nodes.remove",module:mod},req);
                 res.status(204).end();
             }).otherwise(function(err) {
@@ -125,7 +127,7 @@ module.exports = {
                 res.status(404).end();
             }
         } else {
-            var lang = i18n.determineLangFromHeaders(req.acceptsLanguages());
+            var lang = locales.determineLangFromHeaders(req.acceptsLanguages());
             result = redNodes.getNodeConfig(id,lang);
             if (result) {
                 log.audit({event: "nodes.config.get",id:id},req);
@@ -161,8 +163,8 @@ module.exports = {
             res.status(400).json({error:"invalid_request", message:"Invalid request"});
             return;
         }
+        var id = req.params.mod + "/" + req.params.set;
         try {
-            var id = req.params.mod + "/" + req.params.set;
             var node = redNodes.getNodeInfo(id);
             var info;
             if (!node) {
@@ -193,8 +195,8 @@ module.exports = {
             res.status(400).json({error:"invalid_request", message:"Invalid request"});
             return;
         }
+        var mod = req.params.mod;
         try {
-            var mod = req.params.mod;
             var module = redNodes.getModuleInfo(mod);
             if (!module) {
                 log.audit({event: "nodes.module.set",module:mod,error:"not_found"},req);

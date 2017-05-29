@@ -1,5 +1,5 @@
 /**
- * Copyright 2013 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,9 @@
 var util = require("util");
 var mqtt = require("mqtt");
 var events = require("events");
+
+util.log("[warn] nodes/core/io/lib/mqtt.js is deprecated and will be removed in a future release of Node-RED. Please report this usage to the Node-RED mailing list.");
+
 //var inspect = require("util").inspect;
 
 //var Client = module.exports.Client = function(
@@ -84,7 +87,7 @@ MQTTClient.prototype.connect = function(options) {
                    }
              });
              client.on('connack',function(packet) {
-                   if (packet.returnCode == 0) {
+                   if (packet.returnCode === 0) {
                       self.watchdog = setInterval(function(self) {
                             var now = (new Date()).getTime();
 
@@ -227,7 +230,7 @@ MQTTClient.prototype.publish = function(topic,payload,qos,retain) {
          qos: qos||0,
          retain:retain||false
       };
-      if (options.qos != 0) {
+      if (options.qos !== 0) {
          options.messageId = self._nextMessageId();
       }
       this.lastOutbound = (new Date()).getTime()

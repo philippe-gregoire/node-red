@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -306,50 +306,13 @@ RED.subflow = (function() {
 
         $("#workspace-subflow-delete").click(function(event) {
             event.preventDefault();
-            var removedNodes = [];
-            var removedLinks = [];
             var startDirty = RED.nodes.dirty();
+            var historyEvent = removeSubflow(RED.workspaces.active());
+            historyEvent.t = 'delete';
+            historyEvent.dirty = startDirty;
 
-            var activeSubflow = getSubflow();
+            RED.history.push(historyEvent);
 
-            RED.nodes.eachNode(function(n) {
-                if (n.type == "subflow:"+activeSubflow.id) {
-                    removedNodes.push(n);
-                }
-                if (n.z == activeSubflow.id) {
-                    removedNodes.push(n);
-                }
-            });
-            RED.nodes.eachConfig(function(n) {
-                if (n.z == activeSubflow.id) {
-                    removedNodes.push(n);
-                }
-            });
-
-            var removedConfigNodes = [];
-            for (var i=0;i<removedNodes.length;i++) {
-                var removedEntities = RED.nodes.remove(removedNodes[i].id);
-                removedLinks = removedLinks.concat(removedEntities.links);
-                removedConfigNodes = removedConfigNodes.concat(removedEntities.nodes);
-            }
-            // TODO: this whole delete logic should be in RED.nodes.removeSubflow..
-            removedNodes = removedNodes.concat(removedConfigNodes);
-
-            RED.nodes.removeSubflow(activeSubflow);
-
-            RED.history.push({
-                    t:'delete',
-                    nodes:removedNodes,
-                    links:removedLinks,
-                    subflow: {
-                        subflow: activeSubflow
-                    },
-                    dirty:startDirty
-            });
-
-            RED.workspaces.remove(activeSubflow);
-            RED.nodes.dirty(true);
-            RED.view.redraw();
         });
 
         refreshToolbar(activeSubflow);
@@ -362,7 +325,48 @@ RED.subflow = (function() {
         $("#chart").css({"margin-top": "0"});
     }
 
+    function removeSubflow(id) {
+        var removedNodes = [];
+        var removedLinks = [];
 
+        var activeSubflow = RED.nodes.subflow(id);
+
+        RED.nodes.eachNode(function(n) {
+            if (n.type == "subflow:"+activeSubflow.id) {
+                removedNodes.push(n);
+            }
+            if (n.z == activeSubflow.id) {
+                removedNodes.push(n);
+            }
+        });
+        RED.nodes.eachConfig(function(n) {
+            if (n.z == activeSubflow.id) {
+                removedNodes.push(n);
+            }
+        });
+
+        var removedConfigNodes = [];
+        for (var i=0;i<removedNodes.length;i++) {
+            var removedEntities = RED.nodes.remove(removedNodes[i].id);
+            removedLinks = removedLinks.concat(removedEntities.links);
+            removedConfigNodes = removedConfigNodes.concat(removedEntities.nodes);
+        }
+        // TODO: this whole delete logic should be in RED.nodes.removeSubflow..
+        removedNodes = removedNodes.concat(removedConfigNodes);
+
+        RED.nodes.removeSubflow(activeSubflow);
+        RED.workspaces.remove(activeSubflow);
+        RED.nodes.dirty(true);
+        RED.view.redraw();
+
+        return {
+            nodes:removedNodes,
+            links:removedLinks,
+            subflow: {
+                subflow: activeSubflow
+            }
+        }
+    }
     function init() {
         RED.events.on("workspace:change",function(event) {
             var activeSubflow = RED.nodes.subflow(event.workspace);
@@ -380,6 +384,8 @@ RED.subflow = (function() {
             }
         });
 
+        RED.actions.add("core:create-subflow",createSubflow);
+        RED.actions.add("core:convert-to-subflow",convertToSubflow);
     }
 
     function createSubflow() {
@@ -420,7 +426,7 @@ RED.subflow = (function() {
             RED.notify(RED._("subflow.errors.noNodesSelected"),"error");
             return;
         }
-        var i;
+        var i,n;
         var nodes = {};
         var new_links = [];
         var removedLinks = [];
@@ -436,7 +442,7 @@ RED.subflow = (function() {
             selection.nodes[0].y];
 
         for (i=0;i<selection.nodes.length;i++) {
-            var n = selection.nodes[i];
+            n = selection.nodes[i];
             nodes[n.id] = {n:n,outputs:{}};
             boundingBox = [
                 Math.min(boundingBox[0],n.x),
@@ -573,7 +579,23 @@ RED.subflow = (function() {
         }
 
         for (i=0;i<selection.nodes.length;i++) {
-            selection.nodes[i].z = subflow.id;
+            n = selection.nodes[i];
+            if (/^link /.test(n.type)) {
+                n.links = n.links.filter(function(id) {
+                    var isLocalLink = nodes.hasOwnProperty(id);
+                    if (!isLocalLink) {
+                        var otherNode = RED.nodes.node(id);
+                        if (otherNode && otherNode.links) {
+                            var i = otherNode.links.indexOf(n.id);
+                            if (i > -1) {
+                                otherNode.links.splice(i,1);
+                            }
+                        }
+                    }
+                    return isLocalLink;
+                });
+            }
+            n.z = subflow.id;
         }
 
         RED.history.push({
@@ -589,7 +611,7 @@ RED.subflow = (function() {
 
             dirty:RED.nodes.dirty()
         });
-
+        RED.view.select(null);
         RED.editor.validateNode(subflow);
         RED.nodes.dirty(true);
         RED.view.redraw(true);
@@ -601,6 +623,7 @@ RED.subflow = (function() {
         init: init,
         createSubflow: createSubflow,
         convertToSubflow: convertToSubflow,
+        removeSubflow: removeSubflow,
         refresh: refresh,
         removeInput: removeSubflowInput,
         removeOutput: removeSubflowOutput

@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,11 +60,15 @@ describe('sentiment Node', function() {
             var jn1 = helper.getNode("jn1");
             var jn2 = helper.getNode("jn2");
             jn2.on("input", function(msg) {
-                msg.should.have.property('sentiment');
-                msg.sentiment.should.have.property('score');
-                msg.sentiment.score.should.be.a.number;
-                msg.sentiment.score.should.be.above(10);
-                done();
+                try {
+                    msg.should.have.property('sentiment');
+                    msg.sentiment.should.have.property('score');
+                    msg.sentiment.score.should.be.a.Number();
+                    msg.sentiment.score.should.be.above(10);
+                    done();
+                } catch(err) {
+                    done(err);
+                }
             });
             var testString = 'good, great, best, brilliant';
             jn1.receive({payload:testString});
@@ -80,7 +84,7 @@ describe('sentiment Node', function() {
             jn2.on("input", function(msg) {
                 msg.should.have.property('sentiment');
                 msg.sentiment.should.have.property('score');
-                msg.sentiment.score.should.be.a.number;
+                msg.sentiment.score.should.be.a.Number();
                 msg.sentiment.score.should.be.below(-10);
                 done();
             });
@@ -98,7 +102,7 @@ describe('sentiment Node', function() {
             jn2.on("input", function(msg) {
                 msg.should.have.property('sentiment');
                 msg.sentiment.should.have.property('score');
-                msg.sentiment.score.should.be.a.number;
+                msg.sentiment.score.should.be.a.Number();
                 msg.sentiment.score.should.equal(20);
                 done();
             });

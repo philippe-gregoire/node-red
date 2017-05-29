@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -97,7 +97,8 @@ describe('JSON node', function() {
                     return evt[0].type == "json";
                 });
                 logEvents.should.have.length(1);
-                logEvents[0][0].should.have.a.property('msg',"Unexpected token o");
+                logEvents[0][0].should.have.a.property('msg');
+                logEvents[0][0].msg.should.startWith("Unexpected token o");
                 logEvents[0][0].should.have.a.property('level',helper.log().ERROR);
                 done();
             } catch(err) {

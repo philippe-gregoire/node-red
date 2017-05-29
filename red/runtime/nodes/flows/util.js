@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,9 +37,35 @@ function diffNodes(oldNode,newNode) {
     return false;
 }
 
+var EnvVarPropertyRE = /^\$\((\S+)\)$/;
+
+function mapEnvVarProperties(obj,prop) {
+    if (Buffer.isBuffer(obj[prop])) {
+        return;
+    } else if (Array.isArray(obj[prop])) {
+        for (var i=0;i<obj[prop].length;i++) {
+            mapEnvVarProperties(obj[prop],i);
+        }
+    } else if (typeof obj[prop] === 'string') {
+        var m;
+        if ( (m = EnvVarPropertyRE.exec(obj[prop])) !== null) {
+            if (process.env.hasOwnProperty(m[1])) {
+                obj[prop] = process.env[m[1]];
+            }
+        }
+    } else {
+        for (var p in obj[prop]) {
+            if (obj[prop].hasOwnProperty(p)) {
+                mapEnvVarProperties(obj[prop],p);
+            }
+        }
+    }
+}
+
 module.exports = {
 
     diffNodes: diffNodes,
+    mapEnvVarProperties: mapEnvVarProperties,
 
     parseConfig: function(config) {
         var flow = {};
@@ -67,7 +93,8 @@ module.exports = {
                 flow.subflows[n.id].instances = [];
             }
         });
-
+        var linkWires = {};
+        var linkOutNodes = [];
         config.forEach(function(n) {
             if (n.type !== 'subflow' && n.type !== 'tab') {
                 var subflowDetails = subflowInstanceRE.exec(n.type);
@@ -100,19 +127,56 @@ module.exports = {
                         flow.configs[n.id]._users = [];
                     }
                 }
+                if (n.type === 'link in' && n.links) {
+                    // Ensure wires are present in corresponding link out nodes
+                    n.links.forEach(function(id) {
+                        linkWires[id] = linkWires[id]||{};
+                        linkWires[id][n.id] = true;
+                    })
+                } else if (n.type === 'link out' && n.links) {
+                    linkWires[n.id] = linkWires[n.id]||{};
+                    n.links.forEach(function(id) {
+                        linkWires[n.id][id] = true;
+                    })
+                    linkOutNodes.push(n);
+                }
             }
         });
+        linkOutNodes.forEach(function(n) {
+            var links = linkWires[n.id];
+            var targets = Object.keys(links);
+            n.wires = [targets];
+        });
+
+
+        var addedTabs = {};
         config.forEach(function(n) {
             if (n.type !== 'subflow' && n.type !== 'tab') {
                 for (var prop in n) {
-                    if (n.hasOwnProperty(prop) && prop !== 'id' && prop !== 'wires' && prop !== '_users' && flow.configs[n[prop]]) {
+                    if (n.hasOwnProperty(prop) && prop !== 'id' && prop !== 'wires' && prop !== 'type' && prop !== '_users' && flow.configs.hasOwnProperty(n[prop])) {
                         // This property references a global config node
                         flow.configs[n[prop]]._users.push(n.id)
                     }
                 }
+                if (n.z && !flow.subflows[n.z]) {
+
+                    if (!flow.flows[n.z]) {
+                        flow.flows[n.z] = {type:'tab',id:n.z};
+                        flow.flows[n.z].subflows = {};
+                        flow.flows[n.z].configs = {};
+                        flow.flows[n.z].nodes = {};
+                        addedTabs[n.z] = flow.flows[n.z];
+                    }
+                    if (addedTabs[n.z]) {
+                        if (n.hasOwnProperty('x') && n.hasOwnProperty('y')) {
+                            addedTabs[n.z].nodes[n.id] = n;
+                        } else {
+                            addedTabs[n.z].configs[n.id] = n;
+                        }
+                    }
+                }
             }
         });
-
         return flow;
     },
 
@@ -230,22 +294,32 @@ module.exports = {
             }
         }
 
-        for (id in newConfig.allNodes) {
-            if (newConfig.allNodes.hasOwnProperty(id)) {
-                node = newConfig.allNodes[id];
-                for (var prop in node) {
-                    if (node.hasOwnProperty(prop) && prop != "z" && prop != "id" && prop != "wires") {
-                        // This node has a property that references a changed/removed node
-                        // Assume it is a config node change and mark this node as
-                        // changed.
-                        if (changed[node[prop]] || removed[node[prop]]) {
-                            if (!changed[node.id]) {
-                                changed[node.id] = node;
-                                if (newConfig.allNodes[node.z]) {
-                                    changed[node.z] = newConfig.allNodes[node.z];
-                                    if (changed[node.z].type === "subflow") {
-                                        changedSubflows[node.z] = changed[node.z];
-                                        delete changed[node.id];
+        var madeChange;
+        // Loop through the nodes looking for references to changed config nodes
+        // Repeat the loop if anything is marked as changed as it may need to be
+        // propagated to parent nodes.
+        // TODO: looping through all nodes every time is a bit inefficient - could be more targeted
+        do {
+            madeChange = false;
+            for (id in newConfig.allNodes) {
+                if (newConfig.allNodes.hasOwnProperty(id)) {
+                    node = newConfig.allNodes[id];
+                    for (var prop in node) {
+                        if (node.hasOwnProperty(prop) && prop != "z" && prop != "id" && prop != "wires") {
+                            // This node has a property that references a changed/removed node
+                            // Assume it is a config node change and mark this node as
+                            // changed.
+                            if (changed[node[prop]] || removed[node[prop]]) {
+                                if (!changed[node.id]) {
+                                    madeChange = true;
+                                    changed[node.id] = node;
+                                    // This node exists within subflow template
+                                    // Mark the template as having changed
+                                    if (newConfig.allNodes[node.z]) {
+                                        changed[node.z] = newConfig.allNodes[node.z];
+                                        if (changed[node.z].type === "subflow") {
+                                            changedSubflows[node.z] = changed[node.z];
+                                        }
                                     }
                                 }
                             }
@@ -253,12 +327,22 @@ module.exports = {
                     }
                 }
             }
-        }
+        } while (madeChange===true)
 
+        // Find any nodes that exist on a subflow template and remove from changed
+        // list as the parent subflow will now be marked as containing a change
+        for (id in newConfig.allNodes) {
+            if (newConfig.allNodes.hasOwnProperty(id)) {
+                node = newConfig.allNodes[id];
+                if (newConfig.allNodes[node.z] && newConfig.allNodes[node.z].type === "subflow") {
+                    delete changed[node.id];
+                }
+            }
+        }
 
         // Recursively mark all instances of changed subflows as changed
         var changedSubflowStack = Object.keys(changedSubflows);
-        while(changedSubflowStack.length > 0) {
+        while (changedSubflowStack.length > 0) {
             var subflowId = changedSubflowStack.pop();
             for (id in newConfig.allNodes) {
                 if (newConfig.allNodes.hasOwnProperty(id)) {
@@ -292,7 +376,7 @@ module.exports = {
         // Traverse the links of all modified nodes to mark the connected nodes
         var modifiedNodes = diff.added.concat(diff.changed).concat(diff.removed).concat(diff.rewired);
         var visited = {};
-        while(modifiedNodes.length > 0) {
+        while (modifiedNodes.length > 0) {
             node = modifiedNodes.pop();
             if (!visited[node]) {
                 visited[node] = true;

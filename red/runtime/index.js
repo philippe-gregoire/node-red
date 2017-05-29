@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,42 +22,49 @@ var log = require("./log");
 var i18n = require("./i18n");
 var events = require("./events");
 var settings = require("./settings");
+
+var express = require("express");
 var path = require('path');
 var fs = require("fs");
 var os = require("os");
 
 var runtimeMetricInterval = null;
 
+var started = false;
+
 var stubbedExpressApp = {
     get: function() {},
     post: function() {},
     put: function() {},
-    delete: function(){}
+    delete: function() {}
 }
 var adminApi = {
     library: {
-        register: function(){}
+        register: function() {}
     },
     auth: {
-        needsPermission: function(){}
+        needsPermission: function() {}
     },
     comms: {
-        publish: function(){}
+        publish: function() {}
     },
     adminApp: stubbedExpressApp,
-    nodeApp: stubbedExpressApp,
     server: {}
 }
+
+var nodeApp;
 
 function init(userSettings,_adminApi) {
     userSettings.version = getVersion();
     log.init(userSettings);
     settings.init(userSettings);
+
+    nodeApp = express();
+
     if (_adminApi) {
         adminApi = _adminApi;
     }
     redNodes.init(runtime);
-
 }
 
 var version;
@@ -81,7 +88,7 @@ function start() {
         .then(function() {
             return i18n.registerMessageCatalog("runtime",path.resolve(path.join(__dirname,"locales")),"runtime.json")
         })
-        .then(function() { return storage.init(settings)})
+        .then(function() { return storage.init(runtime)})
         .then(function() { return settings.load(storage)})
         .then(function() {
 
@@ -90,29 +97,29 @@ function start() {
                     reportMetrics();
                 }, settings.runtimeMetricInterval||15000);
             }
-            console.log("\n\n"+log._("runtime.welcome")+"\n===================\n");
+            log.info("\n\n"+log._("runtime.welcome")+"\n===================\n");
             if (settings.version) {
                 log.info(log._("runtime.version",{component:"Node-RED",version:"v"+settings.version}));
             }
             log.info(log._("runtime.version",{component:"Node.js ",version:process.version}));
+            if (settings.UNSUPPORTED_VERSION) {
+                log.error("*****************************************************************");
+                log.error("* "+log._("runtime.unsupported_version",{component:"Node.js",version:process.version,requires: ">=4"})+" *");
+                log.error("*****************************************************************");
+                events.emit("runtime-event",{id:"runtime-unsupported-version",type:"error",text:"notification.errors.unsupportedVersion"});
+            }
             log.info(os.type()+" "+os.release()+" "+os.arch()+" "+os.endianness());
-            log.info(log._("server.loading"));
             return redNodes.load().then(function() {
 
                 var i;
                 var nodeErrors = redNodes.getNodeList(function(n) { return n.err!=null;});
                 var nodeMissing = redNodes.getNodeList(function(n) { return n.module && n.enabled && !n.loaded && !n.err;});
                 if (nodeErrors.length > 0) {
-                    log.warn("------------------------------------------");
-                    if (settings.verbose) {
-                        for (i=0;i<nodeErrors.length;i+=1) {
-                            log.warn("["+nodeErrors[i].name+"] "+nodeErrors[i].err);
-                        }
-                    } else {
-                        log.warn(log._("server.errors",{count:nodeErrors.length}));
-                        log.warn(log._("server.errors-help"));
+                    log.warn("------------------------------------------------------");
+                    for (i=0;i<nodeErrors.length;i+=1) {
+                        log.warn("["+nodeErrors[i].name+"] "+nodeErrors[i].err);
                     }
-                    log.warn("------------------------------------------");
+                    log.warn("------------------------------------------------------");
                 }
                 if (nodeMissing.length > 0) {
                     log.warn(log._("server.missing-modules"));
@@ -142,10 +149,11 @@ function start() {
                     log.info(log._("runtime.paths.settings",{path:settings.settingsFile}));
                 }
                 redNodes.loadFlows().then(redNodes.startFlows);
+                started = true;
             }).otherwise(function(err) {
                 console.log(err);
             });
-    });
+        });
 }
 
 function reportMetrics() {
@@ -173,6 +181,7 @@ function stop() {
         clearInterval(runtimeMetricInterval);
         runtimeMetricInterval = null;
     }
+    started = false;
     return redNodes.stopFlows();
 }
 
@@ -190,5 +199,9 @@ var runtime = module.exports = {
     events: events,
     nodes: redNodes,
     util: require("./util"),
-    get adminApi() { return adminApi }
+    get adminApi() { return adminApi },
+    get nodeApp() { return nodeApp },
+    isStarted: function() {
+        return started;
+    }
 }

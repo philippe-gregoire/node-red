@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,11 +71,17 @@ describe('file Nodes', function() {
                 n1.emit("input", {payload:"test2"});    // string
                 setTimeout(function() {
                     n1.emit("input", {payload:true});       // boolean
-                },50);
+                },30);
+                setTimeout(function() {
+                    n1.emit("input", {payload:999});        // number
+                },60);
+                setTimeout(function() {
+                    n1.emit("input", {payload:[2]});        // object (array)
+                },90);
                 setTimeout(function() {
                     var f = fs.readFileSync(fileToTest).toString();
-                    f.should.have.length(11);
-                    f.should.equal("test2\ntrue\n");
+                    f.should.have.length(19);
+                    f.should.equal("test2\ntrue\n999\n[2]\n");
                     done();
                 },wait);
             });

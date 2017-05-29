@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ function needsPermission(permission) {
                 if (permissions.hasPermission(req.authInfo.scope,permission)) {
                     return next();
                 }
-                log.audit({event: "permission.fail"},req);
+                log.audit({event: "permission.fail", permissions: permission},req);
                 return res.status(401).end();
             });
         } else {

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright 2015 IBM Corp.
+# Copyright JS Foundation and other contributors, http://js.foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,4 +40,4 @@ SCRIPT_PATH="`pwd`";
 cd $CURRENT_PATH
 
 # Run Node-RED
-/usr/bin/env node $OPTIONS $SCRIPT_PATH/../red.js $ARGS
+exec /usr/bin/env node $OPTIONS $SCRIPT_PATH/../red.js $ARGS

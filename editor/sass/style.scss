@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 
 @import "jquery";
 @import "bootstrap";
+@import "ace";
 
 @import "dropdownMenu";
 
@@ -34,25 +35,32 @@
 
 @import "editor";
 @import "library";
+@import "search";
 
 @import "tabs";
 @import "tab-config";
 @import "tab-info";
 @import "popover";
 @import "flow";
+@import "palette-editor";
+@import "diff";
 
-@import "typedInput";
+
+@import "ui/common/editableList";
+@import "ui/common/searchBox";
+@import "ui/common/typedInput";
 
 @import "dragdrop";
 
 @import "keyboard";
 
+@import "debug";
 
 body {
     font-size: 14px;
     font-family: 'Helvetica Neue', Arial, Helvetica, sans-serif;
     padding-top: 100px;
-    background: #f3f3f3;
+    background: $background-color;
 }
 
 #main-container {
@@ -81,11 +89,13 @@ code, pre {
 }
 
 code {
-  padding: 0px 4px;
+  padding: 0px 3px 2px 3px;
+  margin: 1px;
   color: #AD1625;
   white-space: nowrap;
   background-color: #f7f7f9;
   border: 1px solid #e1e1e8;
+  border-radius: 2px;
 }
 
 pre {
@@ -110,4 +120,8 @@ pre code {
   white-space: pre-wrap;
   background-color: transparent;
   border: 0;
+}
+
+.hide {
+    display: none;
 }

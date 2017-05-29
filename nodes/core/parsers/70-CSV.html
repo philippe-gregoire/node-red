@@ -1,6 +1,6 @@
 
 <!--
-  Copyright 2014,2015 IBM Corp.
+  Copyright JS Foundation and other contributors, http://js.foundation
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -96,7 +96,7 @@
         },
         inputs:1,
         outputs:1,
-        icon: "arrow-in.png",
+        icon: "parser-csv.png",
         label: function() {
             return this.name||"csv";
         },
@@ -113,7 +113,7 @@
                 $("#node-input-sep").show();
             }
             $("#node-input-select-sep").change(function() {
-                var v = $("#node-input-select-sep option:selected").val();
+                var v = $("#node-input-select-sep").val();
                 $("#node-input-sep").val(v);
                 if (v == "") {
                     $("#node-input-sep").val("");

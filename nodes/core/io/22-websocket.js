@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2016 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,7 +36,9 @@ module.exports = function(RED) {
         node.closing = false;
 
         function startconn() {    // Connect to remote endpoint
+            node.tout = null;
             var socket = new ws(node.path);
+            socket.setMaxListeners(0);
             node.server = socket; // keep for closing
             handleConnection(socket);
         }
@@ -51,16 +53,18 @@ module.exports = function(RED) {
                 if (node.isServer) { delete node._clients[id]; node.emit('closed',Object.keys(node._clients).length); }
                 else { node.emit('closed'); }
                 if (!node.closing && !node.isServer) {
-                    node.tout = setTimeout(function(){ startconn(); }, 3000); // try to reconnect every 3 secs... bit fast ?
+                    clearTimeout(node.tout);
+                    node.tout = setTimeout(function() { startconn(); }, 3000); // try to reconnect every 3 secs... bit fast ?
                 }
             });
-            socket.on('message',function(data,flags){
+            socket.on('message',function(data,flags) {
                 node.handleEvent(id,socket,'message',data,flags);
             });
             socket.on('error', function(err) {
                 node.emit('erro');
                 if (!node.closing && !node.isServer) {
-                    node.tout = setTimeout(function(){ startconn(); }, 3000); // try to reconnect every 3 secs... bit fast ?
+                    clearTimeout(node.tout);
+                    node.tout = setTimeout(function() { startconn(); }, 3000); // try to reconnect every 3 secs... bit fast ?
                 }
             });
         }
@@ -73,8 +77,8 @@ module.exports = function(RED) {
             // Listen for 'newListener' events from RED.server
             node._serverListeners = {};
 
-            var storeListener = function(/*String*/event,/*function*/listener){
-                if(event == "error" || event == "upgrade" || event == "listening"){
+            var storeListener = function(/*String*/event,/*function*/listener) {
+                if (event == "error" || event == "upgrade" || event == "listening") {
                     node._serverListeners[event] = listener;
                 }
             }
@@ -95,7 +99,7 @@ module.exports = function(RED) {
             // Workaround https://github.com/einaros/ws/pull/253
             // Stop listening for new listener events
             RED.server.removeListener('newListener',storeListener);
-
+            node.server.setMaxListeners(0);
             node.server.on('connection', handleConnection);
         }
         else {
@@ -123,7 +127,10 @@ module.exports = function(RED) {
             else {
                 node.closing = true;
                 node.server.close();
-                if (node.tout) { clearTimeout(node.tout); }
+                if (node.tout) {
+                    clearTimeout(node.tout);
+                    node.tout = null;
+                }
             }
         });
     }
@@ -142,7 +149,7 @@ module.exports = function(RED) {
         });
     }
 
-    WebSocketListenerNode.prototype.handleEvent = function(id,/*socket*/socket,/*String*/event,/*Object*/data,/*Object*/flags){
+    WebSocketListenerNode.prototype.handleEvent = function(id,/*socket*/socket,/*String*/event,/*Object*/data,/*Object*/flags) {
         var msg;
         if (this.wholemsg) {
             try {
@@ -163,9 +170,10 @@ module.exports = function(RED) {
     }
 
     WebSocketListenerNode.prototype.broadcast = function(data) {
+        var i;
         try {
-            if(this.isServer) {
-                for (var i = 0; i < this.server.clients.length; i++) {
+            if (this.isServer) {
+                for (i = 0; i < this.server.clients.length; i++) {
                     this.server.clients[i].send(data);
                 }
             }
@@ -203,11 +211,12 @@ module.exports = function(RED) {
         } else {
             this.error(RED._("websocket.errors.missing-conf"));
         }
-
         this.on('close', function() {
-            node.serverConfig.removeInputNode(node);
+            if (node.serverConfig) {
+                node.serverConfig.removeInputNode(node);
+            }
+            node.status({});
         });
-
     }
     RED.nodes.registerType("websocket in",WebSocketInNode);
 
@@ -217,7 +226,7 @@ module.exports = function(RED) {
         this.server = (n.client)?n.client:n.server;
         this.serverConfig = RED.nodes.getNode(this.server);
         if (!this.serverConfig) {
-            this.error(RED._("websocket.errors.missing-conf"));
+            return this.error(RED._("websocket.errors.missing-conf"));
         }
         else {
             // TODO: nls
@@ -242,13 +251,16 @@ module.exports = function(RED) {
                 if (msg._session && msg._session.type == "websocket") {
                     node.serverConfig.reply(msg._session.id,payload);
                 } else {
-                    node.serverConfig.broadcast(payload,function(error){
+                    node.serverConfig.broadcast(payload,function(error) {
                         if (!!error) {
                             node.warn(RED._("websocket.errors.send-error")+inspect(error));
                         }
                     });
                 }
             }
+        });
+        this.on('close', function() {
+            node.status({});
         });
     }
     RED.nodes.registerType("websocket out",WebSocketOutNode);

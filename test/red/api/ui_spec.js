@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -95,7 +95,7 @@ describe("ui api", function() {
                     if (err){
                         return done(err);
                     }
-                    Buffer.isBuffer(res.body).should.be.true;
+                    Buffer.isBuffer(res.body).should.be.true();
                     compareBuffers(res.body,defaultIcon);
                     done();
                 });
@@ -112,7 +112,7 @@ describe("ui api", function() {
                     if (err){
                         return done(err);
                     }
-                    Buffer.isBuffer(res.body).should.be.true;
+                    Buffer.isBuffer(res.body).should.be.true();
                     compareBuffers(res.body,injectIcon);
                     done();
                 });
@@ -130,7 +130,7 @@ describe("ui api", function() {
                     if (err){
                         return done(err);
                     }
-                    Buffer.isBuffer(res.body).should.be.true;
+                    Buffer.isBuffer(res.body).should.be.true();
                     compareBuffers(res.body,testIcon);
                     done();
                 });

@@ -1,5 +1,5 @@
 /**
- * Copyright 2014, 2016 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,9 @@ var lastSentTime;
 function handleStatus(event) {
     publish("status/"+event.id,event.status,true);
 }
-
+function handleRuntimeEvent(event) {
+    publish("notification/"+event.id,event,true);
+}
 function init(_server,runtime) {
     server = _server;
     settings = runtime.settings;
@@ -40,6 +42,9 @@ function init(_server,runtime) {
 
     runtime.events.removeListener("node-status",handleStatus);
     runtime.events.on("node-status",handleStatus);
+
+    runtime.events.removeListener("runtime-event",handleRuntimeEvent);
+    runtime.events.on("runtime-event",handleRuntimeEvent);
 }
 
 function start() {
@@ -88,15 +93,21 @@ function start() {
                         }
                     } else {
                         var completeConnection = function(userScope,sendAck) {
-                            if (!userScope || !Permissions.hasPermission(userScope,"status.read")) {
-                                ws.close();
-                            } else {
-                                pendingAuth = false;
-                                removePendingConnection(ws);
-                                activeConnections.push(ws);
-                                if (sendAck) {
-                                    ws.send(JSON.stringify({auth:"ok"}));
+                            try {
+                                if (!userScope || !Permissions.hasPermission(userScope,"status.read")) {
+                                    ws.send(JSON.stringify({auth:"fail"}));
+                                    ws.close();
+                                } else {
+                                    pendingAuth = false;
+                                    removePendingConnection(ws);
+                                    activeConnections.push(ws);
+                                    if (sendAck) {
+                                        ws.send(JSON.stringify({auth:"ok"}));
+                                    }
                                 }
+                            } catch(err) {
+                                // Just in case the socket closes before we attempt
+                                // to send anything.
                             }
                         }
                         if (msg.auth) {
@@ -121,13 +132,13 @@ function start() {
                             if (anonymousUser) {
                                 log.audit({event: "comms.auth",user:anonymousUser});
                                 completeConnection(anonymousUser.permissions,false);
+                                //TODO: duplicated code - pull non-auth message handling out
+                                if (msg.subscribe) {
+                                    handleRemoteSubscription(ws,msg.subscribe);
+                                }
                             } else {
                                 log.audit({event: "comms.auth.fail"});
                                 completeConnection(null,false);
-                            }
-                            //TODO: duplicated code - pull non-auth message handling out
-                            if (msg.subscribe) {
-                                handleRemoteSubscription(ws,msg.subscribe);
                             }
                         }
                     }

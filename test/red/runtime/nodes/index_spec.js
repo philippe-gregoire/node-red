@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,30 +38,28 @@ describe("red/nodes/index", function() {
         index.clearRegistry();
     });
 
+    process.env.foo="bar";
     var testFlows = [{"type":"test","id":"tab1","label":"Sheet 1"}];
+    var testCredentials = {"tab1":{"b":1, "c":"2", "d":"$(foo)"}};
     var storage = {
-            getFlows: function() {
-                return when(testFlows);
-            },
-            getCredentials: function() {
-                return when({"tab1":{"b":1,"c":2}});
-            },
-            saveFlows: function(conf) {
-                should.deepEqual(testFlows, conf);
-                return when();
-            },
-            saveCredentials: function(creds) {
-                return when(true);
-            }
+        getFlows: function() {
+            return when({red:123,flows:testFlows,credentials:testCredentials});
+        },
+        saveFlows: function(conf) {
+            should.deepEqual(testFlows, conf.flows);
+            return when.resolve(123);
+        }
     };
 
     var settings = {
-        available: function() { return false }
+        available: function() { return false },
+        get: function() { return false }
     };
 
     var runtime = {
         settings: settings,
-        storage: storage
+        storage: storage,
+        log: {debug:function() {}, warn:function() {}}
     };
 
     function TestNode(n) {
@@ -78,7 +76,8 @@ describe("red/nodes/index", function() {
         index.loadFlows().then(function() {
             var testnode = new TestNode({id:'tab1',type:'test',name:'barney'});
             testnode.credentials.should.have.property('b',1);
-            testnode.credentials.should.have.property('c',2);
+            testnode.credentials.should.have.property('c',"2");
+            testnode.credentials.should.have.property('d',"bar");
             done();
         }).otherwise(function(err) {
             done(err);
@@ -88,7 +87,9 @@ describe("red/nodes/index", function() {
    it('flows should be initialised',function(done) {
         index.init(runtime);
         index.loadFlows().then(function() {
-            should.deepEqual(testFlows, index.getFlows());
+            console.log(testFlows);
+            console.log(index.getFlows());
+            should.deepEqual(testFlows, index.getFlows().flows);
             done();
         }).otherwise(function(err) {
             done(err);
@@ -177,8 +178,8 @@ describe("red/nodes/index", function() {
             index.registerType('test', TestNode);
             index.loadFlows().then(function() {
                 var info = index.disableNode("5678");
-                registry.disableNode.calledOnce.should.be.true;
-                registry.disableNode.calledWith("5678").should.be.true;
+                registry.disableNode.calledOnce.should.be.true();
+                registry.disableNode.calledWith("5678").should.be.true();
                 info.should.eql(randomNodeInfo);
                 done();
             }).otherwise(function(err) {

@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,12 @@
 var when = require("when");
 var path = require("path");
 var fs = require("fs");
+var clone = require("clone");
 
 var registry = require("./registry");
 var credentials = require("./credentials");
 var flows = require("./flows");
+var flowUtil = require("./flows/util")
 var context = require("./context");
 var Node = require("./Node");
 var log = require("../log");
@@ -33,15 +35,25 @@ var settings;
 
 /**
  * Registers a node constructor
+ * @param nodeSet - the nodeSet providing the node (module/set)
  * @param type - the string type name
  * @param constructor - the constructor function for this node type
  * @param opts - optional additional options for the node
  */
-function registerType(type,constructor,opts) {
+function registerType(nodeSet,type,constructor,opts) {
+    if (typeof type !== "string") {
+        // This is someone calling the api directly, rather than via the
+        // RED object provided to a node. Log a warning
+        log.warn("["+nodeSet+"] Deprecated call to RED.runtime.nodes.registerType - node-set name must be provided as first argument");
+        opts = constructor;
+        constructor = type;
+        type = nodeSet;
+        nodeSet = "";
+    }
     if (opts && opts.credentials) {
         credentials.register(type,opts.credentials);
     }
-    registry.registerType(type,constructor);
+    registry.registerType(nodeSet,type,constructor);
 }
 
 /**
@@ -58,7 +70,14 @@ function createNode(node,def) {
     }
     var creds = credentials.get(id);
     if (creds) {
+        creds = clone(creds);
         //console.log("Attaching credentials to ",node.id);
+        // allow $(foo) syntax to substitute env variables for credentials also...
+        for (var p in creds) {
+            if (creds.hasOwnProperty(p)) {
+                flowUtil.mapEnvVarProperties(creds,p);
+            }
+        }
         node.credentials = creds;
     } else if (credentials.getDefinition(node.type)) {
         node.credentials = {};
@@ -67,8 +86,8 @@ function createNode(node,def) {
 
 function init(runtime) {
     settings = runtime.settings;
-    credentials.init(runtime.storage);
-    flows.init(runtime.settings,runtime.storage);
+    credentials.init(runtime);
+    flows.init(runtime);
     registry.init(runtime);
     context.init(runtime.settings);
 }
@@ -100,6 +119,7 @@ module.exports = {
     getNode: flows.get,
     eachNode: flows.eachNode,
 
+    paletteEditorEnabled: registry.paletteEditorEnabled,
     installModule: registry.installModule,
     uninstallModule: uninstallModule,
 
@@ -134,7 +154,6 @@ module.exports = {
     removeFlow:  flows.removeFlow,
     // disableFlow: flows.disableFlow,
     // enableFlow:  flows.enableFlow,
-
 
     // Credentials
     addCredentials: credentials.add,

@@ -1,5 +1,5 @@
 /**
- * Copyright 2014,2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ module.exports = function(RED) {
         this.hdrin = n.hdrin || false;
         this.hdrout = n.hdrout || false;
         this.goodtmpl = true;
+        var tmpwarn = true;
         var node = this;
 
         // pass in an array of column names to be trimed, de-quoted and retrimed
@@ -58,7 +59,7 @@ module.exports = function(RED) {
                             if ((Array.isArray(msg.payload[s])) || (typeof msg.payload[s] !== "object")) {
                                 if (typeof msg.payload[s] !== "object") { msg.payload = [ msg.payload ]; }
                                 for (var t = 0; t < msg.payload[s].length; t++) {
-                                    if (!msg.payload[s][t]) { msg.payload[s][t] = ""; }
+                                    if (!msg.payload[s][t] && (msg.payload[s][t] !== 0)) { msg.payload[s][t] = ""; }
                                     if (msg.payload[s][t].toString().indexOf(node.quo) !== -1) { // add double quotes if any quotes
                                         msg.payload[s][t] = msg.payload[s][t].toString().replace(/"/g, '""');
                                         msg.payload[s][t] = node.quo + msg.payload[s][t].toString() + node.quo;
@@ -71,7 +72,27 @@ module.exports = function(RED) {
                             }
                             else {
                                 if ((node.template.length === 1) && (node.template[0] === '')) {
-                                    node.warn(RED._("csv.errors.obj_csv"));
+                                    if (tmpwarn === true) { // just warn about missing template once
+                                        node.warn(RED._("csv.errors.obj_csv"));
+                                        tmpwarn = false;
+                                    }
+                                    ou = "";
+                                    for (var p in msg.payload[0]) {
+                                        if (msg.payload[0].hasOwnProperty(p)) {
+                                            if (typeof msg.payload[0][p] !== "object") {
+                                                var q = msg.payload[0][p];
+                                                if (q.indexOf(node.quo) !== -1) { // add double quotes if any quotes
+                                                    q = q.replace(/"/g, '""');
+                                                    ou += node.quo + q + node.quo + node.sep;
+                                                }
+                                                else if (q.indexOf(node.sep) !== -1) { // add quotes if any "commas"
+                                                    ou += node.quo + q + node.quo + node.sep;
+                                                }
+                                                else { ou += q + node.sep; } // otherwise just add
+                                            }
+                                        }
+                                    }
+                                    ou = ou.slice(0,-1) + node.ret;
                                 }
                                 else {
                                     for (var t=0; t < node.template.length; t++) {
@@ -112,6 +133,7 @@ module.exports = function(RED) {
                         var first = true; // is this the first line
                         var line = msg.payload;
                         var tmp = "";
+                        var reg = /^[-]?[0-9]*\.?[0-9]+$/;
 
                         // For now we are just going to assume that any \r or \n means an end of line...
                         //   got to be a weird csv that has singleton \r \n in it for another reason...
@@ -128,23 +150,25 @@ module.exports = function(RED) {
                             else {
                                 if (line[i] === node.quo) { // if it's a quote toggle inside or outside
                                     f = !f;
-                                    if (line[i-1] === node.quo) { k[j] += '\"'; } // if it's a quotequote then it's actually a quote
+                                    if (line[i-1] === node.quo) {
+                                        if (f === false) { k[j] += '\"'; }
+                                    } // if it's a quotequote then it's actually a quote
                                     //if ((line[i-1] !== node.sep) && (line[i+1] !== node.sep)) { k[j] += line[i]; }
                                 }
-                                else if ((line[i] === node.sep) && f) { // if we are outside of quote (ie valid separator
+                                else if ((line[i] === node.sep) && f) { // if it is the end of the line then finish
                                     if (!node.goodtmpl) { node.template[j] = "col"+(j+1); }
                                     if ( node.template[j] && (node.template[j] !== "") && (k[j] !== "" ) ) {
-                                        if ( (k[j].charAt(0) !== "+") && !isNaN(Number(k[j])) ) { k[j] = Number(k[j]); }
+                                        if ( reg.test(k[j]) ) { k[j] = parseFloat(k[j]); }
                                         o[node.template[j]] = k[j];
                                     }
                                     j += 1;
                                     k[j] = "";
                                 }
-                                else if (f && ((line[i] === "\n") || (line[i] === "\r"))) { // handle multiple lines
+                                else if ((line[i] === "\n") || (line[i] === "\r")) { // handle multiple lines
                                     //console.log(j,k,o,k[j]);
                                     if (!node.goodtmpl) { node.template[j] = "col"+(j+1); }
                                     if ( node.template[j] && (node.template[j] !== "") && (k[j] !== "") ) {
-                                        if ( (k[j].charAt(0) !== "+") && !isNaN(Number(k[j])) ) { k[j] = Number(k[j]); }
+                                        if ( reg.test(k[j]) ) { k[j] = parseFloat(k[j]); }
                                         else { k[j].replace(/\r$/,''); }
                                         o[node.template[j]] = k[j];
                                     }
@@ -159,6 +183,7 @@ module.exports = function(RED) {
                                     j = 0;
                                     k = [""];
                                     o = {};
+                                    f = true; // reset in/out flag ready for next line.
                                 }
                                 else { // just add to the part of the message
                                     k[j] += line[i];
@@ -169,7 +194,7 @@ module.exports = function(RED) {
                         //console.log(j,k,o,k[j]);
                         if (!node.goodtmpl) { node.template[j] = "col"+(j+1); }
                         if ( node.template[j] && (node.template[j] !== "") && (k[j] !== "") ) {
-                            if ( (k[j].charAt(0) !== "+") && !isNaN(Number(k[j])) ) { k[j] = Number(k[j]); }
+                            if ( reg.test(k[j]) ) { k[j] = parseFloat(k[j]); }
                             else { k[j].replace(/\r$/,''); }
                             o[node.template[j]] = k[j];
                         }

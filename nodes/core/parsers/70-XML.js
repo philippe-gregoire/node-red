@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ module.exports = function(RED) {
     "use strict";
     var xml2js = require('xml2js');
     var parseString = xml2js.parseString;
-    var builder = new xml2js.Builder({renderOpts:{pretty:false}});
 
     function XMLNode(n) {
         RED.nodes.createNode(this,n);
@@ -27,15 +26,17 @@ module.exports = function(RED) {
         var node = this;
         this.on("input", function(msg) {
             if (msg.hasOwnProperty("payload")) {
+                var options;
                 if (typeof msg.payload === "object") {
-                    var options = {};
+                    options = {renderOpts:{pretty:false}};
                     if (msg.hasOwnProperty("options") && typeof msg.options === "object") { options = msg.options; }
                     options.async = false;
+                    var builder = new xml2js.Builder(options);
                     msg.payload = builder.buildObject(msg.payload, options);
                     node.send(msg);
                 }
                 else if (typeof msg.payload == "string") {
-                    var options = {};
+                    options = {};
                     if (msg.hasOwnProperty("options") && typeof msg.options === "object") { options = msg.options; }
                     options.async = true;
                     options.attrkey = node.attrkey || options.attrkey || '$';

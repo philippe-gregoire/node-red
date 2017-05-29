@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Copyright 2013, 2016 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,17 +33,22 @@ var settingsFile;
 var flowFile;
 
 var knownOpts = {
-    "settings":[path],
-    "userDir":[path],
+    "help": Boolean,
     "port": Number,
-    "v": Boolean,
-    "help": Boolean
+    "settings": [path],
+    "title": String,
+    "userDir": [path],
+    "verbose": Boolean
 };
 var shortHands = {
-    "s":["--settings"],
-    "u":["--userDir"],
+    "?":["--help"],
     "p":["--port"],
-    "?":["--help"]
+    "s":["--settings"],
+    // As we want to reserve -t for now, adding a shorthand to help so it
+    // doesn't get treated as --title
+    "t":["--help"],
+    "u":["--userDir"],
+    "v":["--verbose"]
 };
 nopt.invalidHandler = function(k,v,t) {
     // TODO: console.log(k,v,t);
@@ -54,18 +59,20 @@ var parsedArgs = nopt(knownOpts,shortHands,process.argv,2)
 if (parsedArgs.help) {
     console.log("Node-RED v"+RED.version());
     console.log("Usage: node-red [-v] [-?] [--settings settings.js] [--userDir DIR]");
-    console.log("                [--port PORT] [flows.json]");
+    console.log("                [--port PORT] [--title TITLE] [flows.json]");
     console.log("");
     console.log("Options:");
-    console.log("  -s, --settings FILE  use specified settings file");
-    console.log("  -u, --userDir  DIR   use specified user directory");
     console.log("  -p, --port     PORT  port to listen on");
-    console.log("  -v                   enable verbose output");
-    console.log("  -?, --help           show usage");
+    console.log("  -s, --settings FILE  use specified settings file");
+    console.log("      --title    TITLE process window title");
+    console.log("  -u, --userDir  DIR   use specified user directory");
+    console.log("  -v, --verbose        enable verbose output");
+    console.log("  -?, --help           show this help");
     console.log("");
     console.log("Documentation can be found at http://nodered.org");
     process.exit();
 }
+
 if (parsedArgs.argv.remain.length > 0) {
     flowFile = parsedArgs.argv.remain[0];
 }
@@ -81,7 +88,7 @@ if (parsedArgs.settings) {
         // NODE_RED_HOME contains user data - use its settings.js
         settingsFile = path.join(process.env.NODE_RED_HOME,"settings.js");
     } else {
-        var userDir = path.join(process.env.HOME || process.env.HOMEPATH || process.env.USERPROFILE,".node-red");
+        var userDir = parsedArgs.userDir || path.join(process.env.HOME || process.env.HOMEPATH || process.env.USERPROFILE,".node-red");
         var userSettingsFile = path.join(userDir,"settings.js");
         if (fs.existsSync(userSettingsFile)) {
             // $HOME/.node-red/settings.js exists
@@ -89,7 +96,7 @@ if (parsedArgs.settings) {
         } else {
             var defaultSettings = path.join(__dirname,"settings.js");
             var settingsStat = fs.statSync(defaultSettings);
-            if (settingsStat.mtime.getTime() < settingsStat.ctime.getTime()) {
+            if (settingsStat.mtime.getTime() <= settingsStat.ctime.getTime()) {
                 // Default settings file has not been modified - safe to copy
                 fs.copySync(defaultSettings,userSettingsFile);
                 settingsFile = userSettingsFile;
@@ -116,14 +123,14 @@ try {
     process.exit();
 }
 
-if (parsedArgs.v) {
+if (parsedArgs.verbose) {
     settings.verbose = true;
 }
 
 if (settings.https) {
-    server = https.createServer(settings.https,function(req,res){app(req,res);});
+    server = https.createServer(settings.https,function(req,res) {app(req,res);});
 } else {
-    server = http.createServer(function(req,res){app(req,res);});
+    server = http.createServer(function(req,res) {app(req,res);});
 }
 server.setMaxListeners(0);
 
@@ -170,7 +177,10 @@ if (parsedArgs.userDir) {
 try {
     RED.init(server,settings);
 } catch(err) {
-    if (err.code == "not_built") {
+    if (err.code == "unsupported_version") {
+        console.log("Unsupported version of node.js:",process.version);
+        console.log("Node-RED requires node.js v4 or later");
+    } else if  (err.code == "not_built") {
         console.log("Node-RED has not been built. See README.md for details");
     } else {
         console.log("Failed to start server:");
@@ -186,6 +196,7 @@ try {
 function basicAuthMiddleware(user,pass) {
     var basicAuth = require('basic-auth');
     var checkPassword;
+    var localCachedPassword;
     if (pass.length == "32") {
         // Assume its a legacy md5 password
         checkPassword = function(p) {
@@ -197,12 +208,26 @@ function basicAuthMiddleware(user,pass) {
         }
     }
 
+    var checkPasswordAndCache = function(p) {
+        // For BasicAuth routes we know the password cannot change without
+        // a restart of Node-RED. This means we can cache the provided crypted
+        // version to save recalculating each time.
+        if (localCachedPassword === p) {
+            return true;
+        }
+        var result = checkPassword(p);
+        if (result) {
+            localCachedPassword = p;
+        }
+        return result;
+    }
+
     return function(req,res,next) {
         if (req.method === 'OPTIONS') {
             return next();
         }
         var requestUser = basicAuth(req);
-        if (!requestUser || requestUser.name !== user || !checkPassword(requestUser.pass)) {
+        if (!requestUser || requestUser.name !== user || !checkPasswordAndCache(requestUser.pass)) {
             res.set('WWW-Authenticate', 'Basic realm=Authorization Required');
             return res.sendStatus(401);
         }
@@ -224,7 +249,6 @@ if (settings.httpNodeRoot !== false && settings.httpNodeAuth) {
 if (settings.httpNodeRoot !== false) {
     app.use(settings.httpNodeRoot,RED.httpNode);
 }
-
 if (settings.httpStatic) {
     settings.httpStaticAuth = settings.httpStaticAuth || settings.httpAuth;
     if (settings.httpStaticAuth) {
@@ -265,7 +289,7 @@ RED.start().then(function() {
             if (settings.httpAdminRoot === false) {
                 RED.log.info(RED.log._("server.admin-ui-disabled"));
             }
-            process.title = 'node-red';
+            process.title = parsedArgs.title || 'node-red';
             RED.log.info(RED.log._("server.now-running", {listenpath:getListenPath()}));
         });
     } else {
@@ -279,7 +303,6 @@ RED.start().then(function() {
         RED.log.error(err);
     }
 });
-
 
 process.on('uncaughtException',function(err) {
     util.log('[red] Uncaught Exception:');

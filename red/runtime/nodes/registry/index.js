@@ -1,5 +1,5 @@
 /**
- * Copyright 2014, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,12 @@ function init(runtime) {
     settings = runtime.settings;
     installer.init(runtime.settings);
     loader.init(runtime);
-    registry.init(runtime.settings,loader);
+    registry.init(settings,loader);
+}
+
+function load() {
+    registry.load();
+    return installer.checkPrereq().then(loader.load);
 }
 
 function addModule(module) {
@@ -52,7 +57,7 @@ function enableNodeSet(typeOrId) {
 
 module.exports = {
     init:init,
-    load:loader.load,
+    load:load,
     clear: registry.clear,
     registerType: registry.registerNodeConstructor,
 
@@ -75,5 +80,7 @@ module.exports = {
     installModule: installer.installModule,
     uninstallModule: installer.uninstallModule,
 
-    cleanModuleList: registry.cleanModuleList
+    cleanModuleList: registry.cleanModuleList,
+
+    paletteEditorEnabled: installer.paletteEditorEnabled
 };

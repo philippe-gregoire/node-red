@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,8 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  **/
-var RED = (function() {
-
+(function() {
 
     function loadNodeList() {
         $.ajax({
@@ -27,7 +26,7 @@ var RED = (function() {
                 RED.nodes.setNodeList(data);
 
                 var nsCount = 0;
-                for(var i=0;i<data.length;i++) {
+                for (var i=0;i<data.length;i++) {
                     var ns = data[i];
                     if (ns.module != "node-red") {
                         nsCount++;
@@ -56,11 +55,9 @@ var RED = (function() {
             success: function(data) {
                 $("body").append(data);
                 $("body").i18n();
-
-
-                $(".palette-spinner").hide();
-                $(".palette-scroll").show();
-                $("#palette-search").show();
+                $("#palette > .palette-spinner").hide();
+                $(".palette-scroll").removeClass("hide");
+                $("#palette-search").removeClass("hide");
                 loadFlows();
             }
         });
@@ -69,44 +66,64 @@ var RED = (function() {
     function loadFlows() {
         $.ajax({
             headers: {
-                "Accept":"application/json"
+                "Accept":"application/json",
             },
             cache: false,
             url: 'flows',
             success: function(nodes) {
-                RED.nodes.import(nodes);
+                var currentHash = window.location.hash;
+                RED.nodes.version(nodes.rev);
+                RED.nodes.import(nodes.flows);
                 RED.nodes.dirty(false);
                 RED.view.redraw(true);
+                if (/^#flow\/.+$/.test(currentHash)) {
+                    RED.workspaces.show(currentHash.substring(6));
+                }
+
+                var persistentNotifications = {};
+                RED.comms.subscribe("notification/#",function(topic,msg) {
+                    var parts = topic.split("/");
+                    var notificationId = parts[1];
+                    if (msg.text) {
+                        var text = RED._(msg.text,{default:msg.text});
+                        if (!persistentNotifications.hasOwnProperty(notificationId)) {
+                            persistentNotifications[notificationId] = RED.notify(text,msg.type,msg.timeout === undefined,msg.timeout);
+                        } else {
+                            persistentNotifications[notificationId].update(text,msg.timeout);
+                        }
+                    } else if (persistentNotifications.hasOwnProperty(notificationId)) {
+                        persistentNotifications[notificationId].close();
+                        delete persistentNotifications[notificationId];
+                    }
+                });
                 RED.comms.subscribe("status/#",function(topic,msg) {
                     var parts = topic.split("/");
                     var node = RED.nodes.node(parts[1]);
                     if (node) {
-                        if (msg.text) {
+                        if (msg.hasOwnProperty("text")) {
                             msg.text = node._(msg.text.toString(),{defaultValue:msg.text.toString()});
                         }
                         node.status = msg;
-                        if (statusEnabled) {
-                            node.dirty = true;
-                            RED.view.redraw();
-                        }
+                        node.dirty = true;
+                        RED.view.redraw();
                     }
                 });
                 RED.comms.subscribe("node/#",function(topic,msg) {
                     var i,m;
                     var typeList;
                     var info;
-
                     if (topic == "node/added") {
                         var addedTypes = [];
-                        for (i=0;i<msg.length;i++) {
-                            m = msg[i];
+                        msg.forEach(function(m) {
                             var id = m.id;
                             RED.nodes.addNodeSet(m);
                             addedTypes = addedTypes.concat(m.types);
-                            $.get('nodes/'+id, function(data) {
-                                $("body").append(data);
+                            RED.i18n.loadCatalog(id, function() {
+                                $.get('nodes/'+id, function(data) {
+                                    $("body").append(data);
+                                });
                             });
-                        }
+                        });
                         if (addedTypes.length) {
                             typeList = "<ul><li>"+addedTypes.join("</li><li>")+"</li></ul>";
                             RED.notify(RED._("palette.event.nodeAdded", {count:addedTypes.length})+typeList,"success");
@@ -149,71 +166,95 @@ var RED = (function() {
         });
     }
 
-    var statusEnabled = false;
-    function toggleStatus(state) {
-        statusEnabled = state;
-        RED.view.status(statusEnabled);
+    function showAbout() {
+        $.get('red/about', function(data) {
+            var aboutHeader = '<div style="text-align:center;">'+
+                                '<img width="50px" src="red/images/node-red-icon.svg" />'+
+                              '</div>';
+
+            RED.sidebar.info.set(aboutHeader+marked(data));
+            RED.sidebar.info.show();
+        });
     }
 
     function loadEditor() {
-        RED.menu.init({id:"btn-sidemenu",
-            options: [
-                {id:"menu-item-view-menu",label:RED._("menu.label.view.view"),options:[
-                    {id:"menu-item-view-show-grid",label:RED._("menu.label.view.showGrid"),toggle:true,onselect:RED.view.toggleShowGrid},
-                    {id:"menu-item-view-snap-grid",label:RED._("menu.label.view.snapGrid"),toggle:true,onselect:RED.view.toggleSnapGrid},
-                    {id:"menu-item-status",label:RED._("menu.label.displayStatus"),toggle:true,onselect:toggleStatus, selected: true},
-                    null,
-                    {id:"menu-item-sidebar",label:RED._("menu.label.sidebar.show"),toggle:true,onselect:RED.sidebar.toggleSidebar, selected: true}
-                ]},
-                null,
-                {id:"menu-item-import",label:RED._("menu.label.import"),options:[
-                    {id:"menu-item-import-clipboard",label:RED._("menu.label.clipboard"),onselect:RED.clipboard.import},
-                    {id:"menu-item-import-library",label:RED._("menu.label.library"),options:[]}
-                ]},
-                {id:"menu-item-export",label:RED._("menu.label.export"),disabled:true,options:[
-                    {id:"menu-item-export-clipboard",label:RED._("menu.label.clipboard"),disabled:true,onselect:RED.clipboard.export},
-                    {id:"menu-item-export-library",label:RED._("menu.label.library"),disabled:true,onselect:RED.library.export}
-                ]},
-                null,
-                {id:"menu-item-config-nodes",label:RED._("menu.label.displayConfig"),onselect:function(){}},
-                {id:"menu-item-workspace",label:RED._("menu.label.flows"),options:[
-                    {id:"menu-item-workspace-add",label:RED._("menu.label.add"),onselect:RED.workspaces.add},
-                    {id:"menu-item-workspace-edit",label:RED._("menu.label.rename"),onselect:RED.workspaces.edit},
-                    {id:"menu-item-workspace-delete",label:RED._("menu.label.delete"),onselect:RED.workspaces.remove},
-                    null
-                ]},
-                {id:"menu-item-subflow",label:RED._("menu.label.subflows"), options: [
-                    {id:"menu-item-subflow-create",label:RED._("menu.label.createSubflow"),onselect:RED.subflow.createSubflow},
-                    {id:"menu-item-subflow-convert",label:RED._("menu.label.selectionToSubflow"),disabled:true,onselect:RED.subflow.convertToSubflow},
-                ]},
-                null,
-                {id:"menu-item-keyboard-shortcuts",label:RED._("menu.label.keyboardShortcuts"),onselect:RED.keyboard.showHelp},
-                {id:"menu-item-help",
-                    label: RED.settings.theme("menu.menu-item-help.label","Node-RED Website"),
-                    href: RED.settings.theme("menu.menu-item-help.url","http://nodered.org/docs")
-                },
-                {id:"menu-item-node-red-version", label:"v"+RED.settings.version}
-            ]
+        var menuOptions = [];
+        menuOptions.push({id:"menu-item-view-menu",label:RED._("menu.label.view.view"),options:[
+            {id:"menu-item-view-show-grid",label:RED._("menu.label.view.showGrid"),toggle:true,onselect:"core:toggle-show-grid"},
+            {id:"menu-item-view-snap-grid",label:RED._("menu.label.view.snapGrid"),toggle:true,onselect:"core:toggle-snap-grid"},
+            {id:"menu-item-status",label:RED._("menu.label.displayStatus"),toggle:true,onselect:"core:toggle-status", selected: true},
+            null,
+            // {id:"menu-item-bidi",label:RED._("menu.label.view.textDir"),options:[
+            //     {id:"menu-item-bidi-default",toggle:"text-direction",label:RED._("menu.label.view.defaultDir"),selected: true, onselect:function(s) { if(s){RED.text.bidi.setTextDirection("")}}},
+            //     {id:"menu-item-bidi-ltr",toggle:"text-direction",label:RED._("menu.label.view.ltr"), onselect:function(s) { if(s){RED.text.bidi.setTextDirection("ltr")}}},
+            //     {id:"menu-item-bidi-rtl",toggle:"text-direction",label:RED._("menu.label.view.rtl"), onselect:function(s) { if(s){RED.text.bidi.setTextDirection("rtl")}}},
+            //     {id:"menu-item-bidi-auto",toggle:"text-direction",label:RED._("menu.label.view.auto"), onselect:function(s) { if(s){RED.text.bidi.setTextDirection("auto")}}}
+            // ]},
+            // null,
+            {id:"menu-item-sidebar",label:RED._("menu.label.sidebar.show"),toggle:true,onselect:"core:toggle-sidebar", selected: true}
+        ]});
+        menuOptions.push(null);
+        menuOptions.push({id:"menu-item-import",label:RED._("menu.label.import"),options:[
+            {id:"menu-item-import-clipboard",label:RED._("menu.label.clipboard"),onselect:"core:show-import-dialog"},
+            {id:"menu-item-import-library",label:RED._("menu.label.library"),options:[]}
+        ]});
+        menuOptions.push({id:"menu-item-export",label:RED._("menu.label.export"),disabled:true,options:[
+            {id:"menu-item-export-clipboard",label:RED._("menu.label.clipboard"),disabled:true,onselect:"core:show-export-dialog"},
+            {id:"menu-item-export-library",label:RED._("menu.label.library"),disabled:true,onselect:"core:library-export"}
+        ]});
+        menuOptions.push(null);
+        menuOptions.push({id:"menu-item-search",label:RED._("menu.label.search"),onselect:"core:search"});
+        menuOptions.push(null);
+        menuOptions.push({id:"menu-item-config-nodes",label:RED._("menu.label.displayConfig"),onselect:"core:show-config-tab"});
+        menuOptions.push({id:"menu-item-workspace",label:RED._("menu.label.flows"),options:[
+            {id:"menu-item-workspace-add",label:RED._("menu.label.add"),onselect:"core:add-flow"},
+            {id:"menu-item-workspace-edit",label:RED._("menu.label.rename"),onselect:"core:edit-flow"},
+            {id:"menu-item-workspace-delete",label:RED._("menu.label.delete"),onselect:"core:remove-flow"}
+        ]});
+        menuOptions.push({id:"menu-item-subflow",label:RED._("menu.label.subflows"), options: [
+            {id:"menu-item-subflow-create",label:RED._("menu.label.createSubflow"),onselect:"core:create-subflow"},
+            {id:"menu-item-subflow-convert",label:RED._("menu.label.selectionToSubflow"),disabled:true,onselect:"core:convert-to-subflow"},
+        ]});
+        menuOptions.push(null);
+        if (RED.settings.theme('palette.editable') !== false) {
+            RED.palette.editor.init();
+            menuOptions.push({id:"menu-item-edit-palette",label:RED._("menu.label.editPalette"),onselect:"core:manage-palette"});
+            menuOptions.push(null);
+        }
+
+        menuOptions.push({id:"menu-item-keyboard-shortcuts",label:RED._("menu.label.keyboardShortcuts"),onselect:"core:show-help"});
+        menuOptions.push({id:"menu-item-show-tips",label:RED._("menu.label.showTips"),toggle:true,selected:true,onselect:"core:toggle-show-tips"});
+        menuOptions.push({id:"menu-item-help",
+            label: RED.settings.theme("menu.menu-item-help.label","Node-RED website"),
+            href: RED.settings.theme("menu.menu-item-help.url","http://nodered.org/docs")
         });
+        menuOptions.push({id:"menu-item-node-red-version", label:"v"+RED.settings.version, onselect: "core:show-about" });
+
 
         RED.user.init();
-
         RED.library.init();
         RED.palette.init();
         RED.sidebar.init();
         RED.subflow.init();
         RED.workspaces.init();
         RED.clipboard.init();
+        RED.search.init();
         RED.view.init();
         RED.editor.init();
+        RED.keyboard.init();
+        RED.diff.init();
+
+        RED.menu.init({id:"btn-sidemenu",options: menuOptions});
 
         RED.deploy.init(RED.settings.theme("deployButton",null));
 
-        RED.keyboard.add(/* ? */ 191,{shift:true},function(){RED.keyboard.showHelp();d3.event.preventDefault();});
+        RED.actions.add("core:show-about", showAbout);
+
         RED.comms.connect();
 
         $("#main-container").show();
         $(".header-toolbar").show();
+
 
         loadNodeList();
     }
@@ -230,8 +271,4 @@ var RED = (function() {
             RED.settings.init(loadEditor);
         })
     });
-
-
-    return {
-    };
 })();

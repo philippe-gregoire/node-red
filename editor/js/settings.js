@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM, Antoine Aflalo
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ RED.settings = (function () {
         }
         localStorage.setItem(key, JSON.stringify(value));
     };
+
     /**
      * If the key is not set in the localStorage it returns <i>undefined</i>
      * Else return the JSON parsed value
@@ -83,6 +84,7 @@ RED.settings = (function () {
                     if (auth_tokens) {
                         jqXHR.setRequestHeader("Authorization","Bearer "+auth_tokens.access_token);
                     }
+                    jqXHR.setRequestHeader("Node-RED-API-Version","v2");
                 }
             }
         });
@@ -100,7 +102,7 @@ RED.settings = (function () {
             url: 'settings',
             success: function (data) {
                 setProperties(data);
-                if (RED.settings.user && RED.settings.user.anonymous) {
+                if (!RED.settings.user || RED.settings.user.anonymous) {
                     RED.settings.remove("auth-tokens");
                 }
                 console.log("Node-RED: " + data.version);
@@ -112,9 +114,9 @@ RED.settings = (function () {
                         window.location.search = "";
                     }
                     RED.user.login(function() { load(done); });
-                 } else {
-                     console.log("Unexpected error:",jqXHR.status,textStatus);
-                 }
+                } else {
+                    console.log("Unexpected error:",jqXHR.status,textStatus);
+                }
             }
         });
     };
@@ -129,6 +131,9 @@ RED.settings = (function () {
             for (var i=0;i<parts.length;i++) {
                 v = v[parts[i]];
             }
+            if (v === undefined) {
+                return defaultValue;
+            }
             return v;
         } catch(err) {
             return defaultValue;
@@ -141,7 +146,6 @@ RED.settings = (function () {
         set: set,
         get: get,
         remove: remove,
-
         theme: theme
     }
 })

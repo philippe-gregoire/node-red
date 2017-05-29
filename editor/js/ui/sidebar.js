@@ -1,5 +1,5 @@
 /**
- * Copyright 2013, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,13 +24,13 @@ RED.sidebar = (function() {
             if (tab.onchange) {
                 tab.onchange.call(tab);
             }
-            $(tab.content).show();
+            $(tab.wrapper).show();
             if (tab.toolbar) {
                 $(tab.toolbar).show();
             }
         },
         onremove: function(tab) {
-            $(tab.content).hide();
+            $(tab.wrapper).hide();
             if (tab.onremove) {
                 tab.onremove.call(tab);
             }
@@ -58,15 +58,18 @@ RED.sidebar = (function() {
             options = title;
         }
 
+        options.wrapper = $('<div>',{style:"height:100%"}).appendTo("#sidebar-content")
+        options.wrapper.append(options.content);
+        options.wrapper.hide();
 
+        if (!options.enableOnEdit) {
+            options.shade = $('<div>',{class:"sidebar-shade hide"}).appendTo(options.wrapper);
+        }
 
-        $("#sidebar-content").append(options.content);
-        $(options.content).hide();
         if (options.toolbar) {
             $("#sidebar-footer").append(options.toolbar);
             $(options.toolbar).hide();
         }
-        $(options.content).hide();
         var id = options.id;
 
         RED.menu.addItem("menu-item-view-menu",{
@@ -87,7 +90,10 @@ RED.sidebar = (function() {
 
     function removeTab(id) {
         sidebar_tabs.removeTab(id);
-        $(knownTabs[id].content).remove();
+        $(knownTabs[id].wrapper).remove();
+        if (knownTabs[id].footer) {
+            knownTabs[id].footer.remove();
+        }
         delete knownTabs[id];
         RED.menu.removeItem("menu-item-view-menu-"+id);
     }
@@ -103,12 +109,12 @@ RED.sidebar = (function() {
                 sidebarSeparator.chartWidth = $("#workspace").width();
                 sidebarSeparator.chartRight = winWidth-$("#workspace").width()-$("#workspace").offset().left-2;
 
-
                 if (!RED.menu.isSelected("menu-item-sidebar")) {
                     sidebarSeparator.opening = true;
                     var newChartRight = 7;
                     $("#sidebar").addClass("closing");
                     $("#workspace").css("right",newChartRight);
+                    $("#editor-stack").css("right",newChartRight+1);
                     $("#sidebar").width(0);
                     RED.menu.setSelected("menu-item-sidebar",true);
                     RED.events.emit("sidebar:resize");
@@ -147,6 +153,7 @@ RED.sidebar = (function() {
 
                 var newChartRight = sidebarSeparator.chartRight-d;
                 $("#workspace").css("right",newChartRight);
+                $("#editor-stack").css("right",newChartRight+1);
                 $("#sidebar").width(newSidebarWidth);
 
                 sidebar_tabs.resize();
@@ -159,6 +166,7 @@ RED.sidebar = (function() {
                     if ($("#sidebar").width() < 180) {
                         $("#sidebar").width(180);
                         $("#workspace").css("right",187);
+                        $("#editor-stack").css("right",188);
                     }
                 }
                 $("#sidebar-separator").css("left","auto");
@@ -194,12 +202,18 @@ RED.sidebar = (function() {
     }
 
     function init () {
-        RED.keyboard.add(/* SPACE */ 32,{ctrl:true},function(){RED.menu.setSelected("menu-item-sidebar",!RED.menu.isSelected("menu-item-sidebar"));d3.event.preventDefault();});
+        RED.actions.add("core:toggle-sidebar",function(state){
+            if (state === undefined) {
+                RED.menu.toggleSelected("menu-item-sidebar");
+            } else {
+                toggleSidebar(state);
+            }
+        });
         showSidebar();
         RED.sidebar.info.init();
         RED.sidebar.config.init();
         // hide info bar at start if screen rather narrow...
-        if ($(window).width() < 600) { toggleSidebar(); }
+        if ($(window).width() < 600) { RED.menu.setSelected("menu-item-sidebar",false); }
     }
 
     return {

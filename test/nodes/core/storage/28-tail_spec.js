@@ -1,5 +1,5 @@
 /**
- * Copyright 2014 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -156,7 +156,7 @@ describe('tail Node', function() {
                 msg.should.have.property('topic', fileToTail);
                 inputCounter++;
                 if (inputCounter === 1) {
-                    warned.should.be.false;
+                    warned.should.be.false();
                     msg.payload.should.equal("Tail message line append");
                 } else if (inputCounter === 2) {
                     msg.payload.should.equal("Tail message line truncate");
@@ -166,7 +166,7 @@ describe('tail Node', function() {
 
                 if (inputCounter === 5) {
                     setTimeout(function() {
-                        warned.should.be.true;
+                        warned.should.be.true();
                         done();
                     },100);
                 }

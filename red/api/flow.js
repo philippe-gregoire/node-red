@@ -1,5 +1,5 @@
 /**
- * Copyright 2014, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -54,7 +54,6 @@ module.exports = {
                 log.audit({event: "flow.update",id:id},req);
                 res.json({id:id});
             }).otherwise(function(err) {
-                console.log(err.stack);
                 log.audit({event: "flow.update",error:err.code||"unexpected_error",message:err.toString()},req);
                 res.status(400).json({error:err.code||"unexpected_error", message:err.toString()});
             })
@@ -63,7 +62,6 @@ module.exports = {
                 log.audit({event: "flow.update",id:id,error:"not_found"},req);
                 res.status(404).end();
             } else {
-                console.log(err.stack);
                 log.audit({event: "flow.update",error:err.code||"unexpected_error",message:err.toString()},req);
                 res.status(400).json({error:err.code||"unexpected_error", message:err.toString()});
             }

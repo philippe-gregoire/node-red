@@ -29,24 +29,23 @@ For further help, or general discussion, please use the
 
 If you want to run the latest code from git, here's how to get started:
 
-1. Install grunt, the build tool
-
-        npm install -g grunt-cli
-
-2. Clone the code:
+1. Clone the code:
 
         git clone https://github.com/node-red/node-red.git
         cd node-red
 
-3. Install the node-red dependencies
+2. Install the node-red dependencies
 
         npm install
 
-4. Build the code
+3. Build the code
 
-        grunt build
+        npm run build
 
-5. Run
+4. Run
+
+        npm start
+   or
 
         node red.js
 
@@ -55,15 +54,21 @@ If you want to run the latest code from git, here's how to get started:
 Before raising a pull-request, please read our
 [contributing guide](https://github.com/node-red/node-red/blob/master/CONTRIBUTING.md).
 
+This project adheres to the [Contributor Covenant 1.4](http://contributor-covenant.org/version/1/4/).
+ By participating, you are expected to uphold this code. Please report unacceptable
+ behavior to any of the [project's core team](https://github.com/orgs/node-red/teams/core).
+
 ## Authors
 
-Node-RED is a creation of [IBM Emerging Technology](http://ibm.com/blogs/et).
+Node-RED is a project of the [JS Foundation](http://js.foundation).
+
+It was created by [IBM Emerging Technology](https://www.ibm.com/blogs/emerging-technology/).
 
 * Nick O'Leary [@knolleary](http://twitter.com/knolleary)
 * Dave Conway-Jones [@ceejay](http://twitter.com/ceejay)
 
-For more open-source projects from IBM, head over [here](http://ibm.github.io).
+
 
 ## Copyright and license
 
-Copyright 2013, 2016 IBM Corp. under [the Apache 2.0 license](LICENSE).
+Copyright JS Foundation and other contributors, http://js.foundation under [the Apache 2.0 license](LICENSE).

@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,12 @@
      function emit(evt,arg) {
          if (handlers[evt]) {
              for (var i=0;i<handlers[evt].length;i++) {
-                 handlers[evt][i](arg);
+                 try {
+                     handlers[evt][i](arg);
+                 } catch(err) {
+                     console.log("RED.events.emit error: ["+evt+"] "+(err.toString()));
+                     console.log(err);
+                 }
              }
 
          }

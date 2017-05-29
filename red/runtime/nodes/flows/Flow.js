@@ -1,5 +1,5 @@
 /**
- * Copyright 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,10 +36,32 @@ function Flow(global,flow) {
         var id;
         catchNodeMap = {};
         statusNodeMap = {};
-        for (id in flow.configs) {
-            if (flow.configs.hasOwnProperty(id)) {
-                node = flow.configs[id];
-                if (!activeNodes[id]) {
+
+        var configNodes = Object.keys(flow.configs);
+        var configNodeAttempts = {};
+        while (configNodes.length > 0) {
+            id = configNodes.shift();
+            node = flow.configs[id];
+            if (!activeNodes[id]) {
+                var readyToCreate = true;
+                // This node doesn't exist.
+                // Check it doesn't reference another non-existent config node
+                for (var prop in node) {
+                    if (node.hasOwnProperty(prop) && prop !== 'id' && prop !== 'wires' && prop !== '_users' && flow.configs[node[prop]]) {
+                        if (!activeNodes[node[prop]]) {
+                            // References a non-existent config node
+                            // Add it to the back of the list to try again later
+                            configNodes.push(id);
+                            configNodeAttempts[id] = (configNodeAttempts[id]||0)+1;
+                            if (configNodeAttempts[id] === 100) {
+                                throw new Error("Circular config node dependency detected: "+id);
+                            }
+                            readyToCreate = false;
+                            break;
+                        }
+                    }
+                }
+                if (readyToCreate) {
                     newNode = createNode(node.type,node);
                     if (newNode) {
                         activeNodes[id] = newNode;
@@ -47,6 +69,7 @@ function Flow(global,flow) {
                 }
             }
         }
+
         if (diff && diff.rewired) {
             for (var j=0;j<diff.rewired.length;j++) {
                 var rewireNode = activeNodes[diff.rewired[j]];
@@ -153,7 +176,7 @@ function Flow(global,flow) {
         var targetStatusNodes = null;
         var reportingNode = node;
         var handled = false;
-        while(reportingNode && !handled) {
+        while (reportingNode && !handled) {
             targetStatusNodes = statusNodeMap[reportingNode.z];
             if (targetStatusNodes) {
                 targetStatusNodes.forEach(function(targetStatusNode) {
@@ -170,8 +193,8 @@ function Flow(global,flow) {
                             }
                         }
                     };
-                    if (statusMessage.text) {
-                        message.status.text = statusMessage.text;
+                    if (statusMessage.hasOwnProperty("text")) {
+                        message.status.text = statusMessage.text.toString();
                     }
                     targetStatusNode.receive(message);
                     handled = true;
@@ -224,38 +247,15 @@ function Flow(global,flow) {
                             count: count
                         }
                     };
+                    if (logMessage.hasOwnProperty('stack')) {
+                        errorMessage.error.stack = logMessage.stack;
+                    }
                     targetCatchNode.receive(errorMessage);
                     handled = true;
                 });
             }
             if (!handled) {
                 throwingNode = activeNodes[throwingNode.z];
-            }
-        }
-    }
-
-}
-
-var EnvVarPropertyRE = /^\$\((\S+)\)$/;
-
-function mapEnvVarProperties(obj,prop) {
-    if (Buffer.isBuffer(obj[prop])) {
-        return;
-    } else if (Array.isArray(obj[prop])) {
-        for (var i=0;i<obj[prop].length;i++) {
-            mapEnvVarProperties(obj[prop],i);
-        }
-    } else if (typeof obj[prop] === 'string') {
-        var m;
-        if ( (m = EnvVarPropertyRE.exec(obj[prop])) !== null) {
-            if (process.env.hasOwnProperty(m[1])) {
-                obj[prop] = process.env[m[1]];
-            }
-        }
-    } else {
-        for (var p in obj[prop]) {
-            if (obj[prop].hasOwnProperty) {
-                mapEnvVarProperties(obj[prop],p);
             }
         }
     }
@@ -269,7 +269,7 @@ function createNode(type,config) {
         delete conf.credentials;
         for (var p in conf) {
             if (conf.hasOwnProperty(p)) {
-                mapEnvVarProperties(conf,p);
+                flowUtil.mapEnvVarProperties(conf,p);
             }
         }
         try {
@@ -459,7 +459,7 @@ function createSubflow(sf,sfn,subflows,globalSubflows,activeNodes) {
     subflowNode.instanceNodes = {};
 
     nodes.forEach(function(node) {
-       subflowNode.instanceNodes[node.id] = node;
+        subflowNode.instanceNodes[node.id] = node;
     });
     return nodes;
 }

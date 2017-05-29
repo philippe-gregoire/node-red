@@ -1,5 +1,5 @@
 /**
- * Copyright 2014, 2015 IBM Corp.
+ * Copyright JS Foundation and other contributors, http://js.foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ var util = require('util');
 var path = require('path');
 var passport = require('passport');
 var when = require('when');
+var cors = require('cors');
 
 var ui = require("./ui");
 var nodes = require("./nodes");
@@ -38,8 +39,8 @@ var needsPermission = auth.needsPermission;
 var i18n;
 var log;
 var adminApp;
-var nodeApp;
 var server;
+var runtime;
 
 var errorHandler = function(err,req,res,next) {
     if (err.message === "request entity too large") {
@@ -51,14 +52,21 @@ var errorHandler = function(err,req,res,next) {
     res.status(400).json({error:"unexpected_error", message:err.toString()});
 };
 
-function init(_server,runtime) {
+var ensureRuntimeStarted = function(req,res,next) {
+    if (!runtime.isStarted()) {
+        log.error("Node-RED runtime not started");
+        res.status(503).send("Not started");
+    } else {
+        next();
+    }
+}
+
+function init(_server,_runtime) {
     server = _server;
+    runtime = _runtime;
     var settings = runtime.settings;
     i18n = runtime.i18n;
     log = runtime.log;
-    if (settings.httpNodeRoot !== false) {
-        nodeApp = express();
-    }
     if (settings.httpAdminRoot !== false) {
         comms.init(server,runtime);
         adminApp = express();
@@ -75,7 +83,17 @@ function init(_server,runtime) {
         if (!settings.disableEditor) {
             ui.init(runtime);
             var editorApp = express();
-            editorApp.get("/",ui.ensureSlash,ui.editor);
+            if (settings.requireHttps === true) {
+                editorApp.enable('trust proxy');
+                editorApp.use(function (req, res, next) {
+                    if (req.secure) {
+                        next();
+                    } else {
+                        res.redirect('https://' + req.headers.host + req.originalUrl);
+                    }
+                });
+            }
+            editorApp.get("/",ensureRuntimeStarted,ui.ensureSlash,ui.editor);
             editorApp.get("/icons/:icon",ui.icon);
             theme.init(runtime);
             if (settings.editorTheme) {
@@ -84,7 +102,7 @@ function init(_server,runtime) {
             editorApp.use("/",ui.editorResources);
             adminApp.use(editorApp);
         }
-        var maxApiRequestSize = settings.apiMaxLength || '1mb';
+        var maxApiRequestSize = settings.apiMaxLength || '5mb';
         adminApp.use(bodyParser.json({limit:maxApiRequestSize}));
         adminApp.use(bodyParser.urlencoded({limit:maxApiRequestSize,extended:true}));
 
@@ -101,6 +119,10 @@ function init(_server,runtime) {
             );
             adminApp.post("/auth/revoke",needsPermission(""),auth.revoke,errorHandler);
         }
+        if (settings.httpAdminCors) {
+            var corsHandler = cors(settings.httpAdminCors);
+            adminApp.use(corsHandler);
+        }
 
         // Flows
         adminApp.get("/flows",needsPermission("flows.read"),flows.get,errorHandler);
@@ -115,12 +137,12 @@ function init(_server,runtime) {
         adminApp.get("/nodes",needsPermission("nodes.read"),nodes.getAll,errorHandler);
         adminApp.post("/nodes",needsPermission("nodes.write"),nodes.post,errorHandler);
 
-        adminApp.get("/nodes/:mod",needsPermission("nodes.read"),nodes.getModule,errorHandler);
-        adminApp.put("/nodes/:mod",needsPermission("nodes.write"),nodes.putModule,errorHandler);
-        adminApp.delete("/nodes/:mod",needsPermission("nodes.write"),nodes.delete,errorHandler);
+        adminApp.get(/\/nodes\/((@[^\/]+\/)?[^\/]+)$/,needsPermission("nodes.read"),nodes.getModule,errorHandler);
+        adminApp.put(/\/nodes\/((@[^\/]+\/)?[^\/]+)$/,needsPermission("nodes.write"),nodes.putModule,errorHandler);
+        adminApp.delete(/\/nodes\/((@[^\/]+\/)?[^\/]+)$/,needsPermission("nodes.write"),nodes.delete,errorHandler);
 
-        adminApp.get("/nodes/:mod/:set",needsPermission("nodes.read"),nodes.getSet,errorHandler);
-        adminApp.put("/nodes/:mod/:set",needsPermission("nodes.write"),nodes.putSet,errorHandler);
+        adminApp.get(/\/nodes\/((@[^\/]+\/)?[^\/]+)\/([^\/]+)$/,needsPermission("nodes.read"),nodes.getSet,errorHandler);
+        adminApp.put(/\/nodes\/((@[^\/]+\/)?[^\/]+)\/([^\/]+)$/,needsPermission("nodes.write"),nodes.putSet,errorHandler);
 
         adminApp.get('/credentials/:type/:id', needsPermission("credentials.read"),credentials.get,errorHandler);
 
@@ -139,7 +161,12 @@ function init(_server,runtime) {
     }
 }
 function start() {
-    return i18n.registerMessageCatalog("editor",path.resolve(path.join(__dirname,"locales")),"editor.json").then(function(){
+    var catalogPath = path.resolve(path.join(__dirname,"locales"));
+    return i18n.registerMessageCatalogs([
+        {namespace: "editor",   dir: catalogPath, file:"editor.json"},
+        {namespace: "jsonata",  dir: catalogPath, file:"jsonata.json"},
+        {namespace: "infotips", dir: catalogPath, file:"infotips.json"}
+    ]).then(function(){
         comms.start();
     });
 }
@@ -161,6 +188,5 @@ module.exports = {
         publish: comms.publish
     },
     get adminApp() { return adminApp; },
-    get nodeApp() { return nodeApp; },
     get server() { return server; }
 };

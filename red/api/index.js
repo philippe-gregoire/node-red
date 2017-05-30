@@ -43,7 +43,8 @@ var server;
 var runtime;
 
 var errorHandler = function(err,req,res,next) {
-    if (err.message === "request entity too large req; length=" + (err.length || "N/A") + " limit=" + (err.limit || "N/A")) {
+    if (err.message === "request entity too large") {
+        err.message = err.message + "req; length=" + (err.length || "N/A") + " limit=" + (err.limit || "N/A");
         log.error(err);
     } else {
         console.log(err.stack);
